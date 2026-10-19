@@ -64,6 +64,12 @@
       },
       "recently_added_artists": {
         "name": "Recently added artists"
+      },
+      "latest_album": {
+        "name": "Latest album"
+      },
+      "latest_artist": {
+        "name": "Latest artist"
       }
     }
   }

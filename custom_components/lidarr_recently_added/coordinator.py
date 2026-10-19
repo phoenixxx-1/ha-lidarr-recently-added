@@ -52,6 +52,17 @@ class AlbumItem:
     musicbrainz_id: str | None
     lidarr_url: str | None
 
+    @property
+    def title(self) -> str | None:
+        """Return "Artist – Album", or whichever part is known."""
+        parts = [part for part in (self.artist, self.album) if part]
+        return " – ".join(parts) or None
+
+    @property
+    def picture_url(self) -> str | None:
+        """Return the public cover image URL."""
+        return self.cover_url
+
     def as_dict(self) -> dict[str, Any]:
         """Return the public, JSON-serialisable representation."""
         return {
@@ -78,6 +89,16 @@ class ArtistItem:
     album_count: int | None
     musicbrainz_id: str | None
     lidarr_url: str | None
+
+    @property
+    def title(self) -> str | None:
+        """Return the artist name."""
+        return self.artist
+
+    @property
+    def picture_url(self) -> str | None:
+        """Return the public artist image URL."""
+        return self.image_url
 
     def as_dict(self) -> dict[str, Any]:
         """Return the public, JSON-serialisable representation."""

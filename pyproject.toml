@@ -1,6 +1,6 @@
 [project]
 name = "ha-lidarr-recently-added"
-version = "0.1.0"
+version = "0.2.0"
 description = "Home Assistant integration for recently added Lidarr albums and artists"
 requires-python = ">=3.14"
 license = "MIT"
@@ -27,6 +27,9 @@ ignore = [
   "E501",
   "PLR0912", "PLR0913", "PLR2004",
 ]
+
+# The en dash in "Artist – Album" is deliberate.
+allowed-confusables = ["–"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLC0415", "D103"]

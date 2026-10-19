@@ -32,12 +32,30 @@ from .coordinator import (
 PARALLEL_UPDATES = 0
 
 
+type RecentItem = AlbumItem | ArtistItem
+
+# Home Assistant rejects states longer than 255 characters.
+MAX_STATE_LENGTH = 255
+
+
+def _latest_title(items: Sequence[RecentItem]) -> str | None:
+    """Return the newest item's title, truncated to a valid state."""
+    if not items or (title := items[0].title) is None:
+        return None
+    if len(title) > MAX_STATE_LENGTH:
+        return title[: MAX_STATE_LENGTH - 1] + "…"
+    return title
+
+
 @dataclass(frozen=True, kw_only=True)
 class LidarrRecentlyAddedSensorDescription(SensorEntityDescription):
     """Describes a recently added sensor."""
 
-    items_fn: Callable[[RecentlyAddedData], Sequence[AlbumItem | ArtistItem] | None]
+    items_fn: Callable[[RecentlyAddedData], Sequence[RecentItem] | None]
     enabled_fn: Callable[[LidarrRecentlyAddedCoordinator], bool]
+    value_fn: Callable[[Sequence[RecentItem]], datetime | str | None]
+    # True: expose the whole list as `items`. False: expose the newest item's fields.
+    list_attributes: bool
 
 
 SENSORS: tuple[LidarrRecentlyAddedSensorDescription, ...] = (
@@ -47,6 +65,8 @@ SENSORS: tuple[LidarrRecentlyAddedSensorDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         items_fn=lambda data: data.albums,
         enabled_fn=lambda coordinator: coordinator.albums_enabled,
+        value_fn=lambda items: items[0].added if items else None,
+        list_attributes=True,
     ),
     LidarrRecentlyAddedSensorDescription(
         key="recently_added_artists",
@@ -54,6 +74,24 @@ SENSORS: tuple[LidarrRecentlyAddedSensorDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         items_fn=lambda data: data.artists,
         enabled_fn=lambda coordinator: coordinator.artists_enabled,
+        value_fn=lambda items: items[0].added if items else None,
+        list_attributes=True,
+    ),
+    LidarrRecentlyAddedSensorDescription(
+        key="latest_album",
+        translation_key="latest_album",
+        items_fn=lambda data: data.albums,
+        enabled_fn=lambda coordinator: coordinator.albums_enabled,
+        value_fn=_latest_title,
+        list_attributes=False,
+    ),
+    LidarrRecentlyAddedSensorDescription(
+        key="latest_artist",
+        translation_key="latest_artist",
+        items_fn=lambda data: data.artists,
+        enabled_fn=lambda coordinator: coordinator.artists_enabled,
+        value_fn=_latest_title,
+        list_attributes=False,
     ),
 )
 
@@ -82,7 +120,7 @@ async def async_setup_entry(
 class LidarrRecentlyAddedSensor(
     CoordinatorEntity[LidarrRecentlyAddedCoordinator], SensorEntity
 ):
-    """A sensor whose state is the newest item's timestamp."""
+    """A sensor describing the newest albums or artists."""
 
     _attr_has_entity_name = True
     # The list can exceed the recorder's 16 KB attribute limit, and its
@@ -110,16 +148,24 @@ class LidarrRecentlyAddedSensor(
         )
 
     @property
-    def _items(self) -> Sequence[AlbumItem | ArtistItem]:
+    def _items(self) -> Sequence[RecentItem]:
         return self.entity_description.items_fn(self.coordinator.data) or ()
 
     @property
-    def native_value(self) -> datetime | None:
-        """Return when the newest item was added."""
-        items = self._items
-        return items[0].added if items else None
+    def native_value(self) -> datetime | str | None:
+        """Return the newest item's timestamp or title."""
+        return self.entity_description.value_fn(self._items)
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the newest items."""
-        return {ATTR_ITEMS: [item.as_dict() for item in self._items]}
+    def entity_picture(self) -> str | None:
+        """Show the newest item's public cover or image in place of the icon."""
+        items = self._items
+        return items[0].picture_url if items else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return the newest items, or the newest item's fields."""
+        items = self._items
+        if self.entity_description.list_attributes:
+            return {ATTR_ITEMS: [item.as_dict() for item in items]}
+        return items[0].as_dict() if items else None

@@ -75,8 +75,25 @@ Open the integration and choose **Configure**:
 
 ## Sensors
 
-Both sensors belong to one device per Lidarr instance. Entity IDs follow the
+Each Lidarr instance gets one device with four sensors. Entity IDs follow the
 device name, which is Lidarr's instance name (usually `Lidarr`).
+
+| Sensor | State | Picture | Attributes |
+|---|---|---|---|
+| `sensor.lidarr_latest_album` | `Artist – Album` of the newest import | Its cover | That album's fields |
+| `sensor.lidarr_latest_artist` | Name of the newest artist | Their image | That artist's fields |
+| `sensor.lidarr_recently_added_albums` | When the newest album was imported | Newest cover | `items`: the list |
+| `sensor.lidarr_recently_added_artists` | When the newest artist was added | Newest image | `items`: the list |
+
+Use the **Latest** sensors for a quick look or a simple dashboard tile, and
+the **Recently added** sensors for lists and for automations that react to
+the timestamp.
+
+> **Where's the list?** Home Assistant's device page shows each sensor's
+> state, not its attributes. To see the full list, select **Recently added
+> albums** (or artists) and expand **Attributes** in the dialog that opens.
+> The list is meant for dashboard cards; see the
+> [examples](#dashboard-examples) below.
 
 ### `sensor.lidarr_recently_added_albums`
 
@@ -112,6 +129,13 @@ device name, which is Lidarr's instance name (usually `Lidarr`).
 The `items` attribute is excluded from the recorder, so it doesn't fill your
 database.
 
+### `sensor.lidarr_latest_album` and `sensor.lidarr_latest_artist`
+
+- **State:** `Artist – Album` for the newest album, or the newest artist's
+  name. `unknown` when there is nothing yet.
+- **Picture:** the album cover or artist image, when Lidarr has a public one.
+- **Attributes:** the same fields as one entry of `items` above.
+
 ### Where the data comes from
 
 - **Albums** come from Lidarr's history, filtered to import events. Lidarr
@@ -126,8 +150,9 @@ database.
 Your API key is never placed in an attribute, event or URL. Lidarr's own
 `/MediaCover` images need a login, so this integration only uses the public
 image addresses Lidarr stores (Cover Art Archive, fanart.tv and similar). Your
-browser loads those images directly from those sites. Items without a public
-image have an empty image field.
+browser loads those images directly from those sites, including the sensor
+pictures shown in place of icons. Items without a public image have an empty
+image field, and their sensors show the normal icon.
 
 ## Events
 
@@ -164,6 +189,10 @@ To watch events, open **Developer tools → Events** and listen for
 `lidarr_recently_added_album`.
 
 ## Dashboard examples
+
+For a quick start, add the device's sensors to a dashboard with **Add to
+dashboard** on the device page. The Latest sensors show the newest album and
+artist with their pictures. For a full list, use the examples below.
 
 Both examples use only built-in cards. Change the entity ID if your device
 isn't called `Lidarr`.

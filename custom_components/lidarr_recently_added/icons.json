@@ -6,6 +6,12 @@
       },
       "recently_added_artists": {
         "default": "mdi:account-music"
+      },
+      "latest_album": {
+        "default": "mdi:album"
+      },
+      "latest_artist": {
+        "default": "mdi:account-music"
       }
     }
   }

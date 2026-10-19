@@ -2,17 +2,32 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import json
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.test_util.aiohttp import (
+    AiohttpClientMocker,
+)
 
 from custom_components.lidarr_recently_added.const import DOMAIN
-from custom_components.lidarr_recently_added.sensor import LidarrRecentlyAddedSensor
+from custom_components.lidarr_recently_added.coordinator import ArtistItem
+from custom_components.lidarr_recently_added.sensor import (
+    LidarrRecentlyAddedSensor,
+    _latest_title,
+)
 from homeassistant.const import ATTR_DEVICE_CLASS
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
-from .conftest import API_KEY, URL
+from .conftest import (
+    API_KEY,
+    SYSTEM_STATUS,
+    URL,
+    album_details,
+    history_record,
+    mock_lidarr,
+)
 
 ALBUM_KEYS = {
     "artist",
@@ -88,12 +103,10 @@ async def test_items_not_recorded() -> None:
 
 async def test_empty_library(
     hass: HomeAssistant,
-    aioclient_mock,
+    aioclient_mock: AiohttpClientMocker,
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """With nothing imported the state is unknown and items is empty."""
-    from .conftest import mock_lidarr
-
     mock_lidarr(aioclient_mock, history=[], artists=[])
     mock_config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
@@ -124,4 +137,91 @@ async def test_device(
     assert {entity.unique_id for entity in entities} == {
         f"{setup_integration.entry_id}_recently_added_albums",
         f"{setup_integration.entry_id}_recently_added_artists",
+        f"{setup_integration.entry_id}_latest_album",
+        f"{setup_integration.entry_id}_latest_artist",
     }
+
+
+async def test_pictures_on_list_sensors(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    """The list sensors show the newest item's public image."""
+    albums = hass.states.get("sensor.lidarr_recently_added_albums")
+    assert (
+        albums.attributes["entity_picture"]
+        == "https://coverartarchive.org/release/1/front.jpg"
+    )
+    artists = hass.states.get("sensor.lidarr_recently_added_artists")
+    assert (
+        artists.attributes["entity_picture"] == "https://assets.fanart.tv/fanart/2.jpg"
+    )
+
+
+async def test_latest_album_sensor(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    """The latest album sensor shows a readable title, cover and the item."""
+    state = hass.states.get("sensor.lidarr_latest_album")
+    assert state.state == "Alpha – Album 1"
+    assert (
+        state.attributes["entity_picture"]
+        == "https://coverartarchive.org/release/1/front.jpg"
+    )
+    assert ATTR_DEVICE_CLASS not in state.attributes
+    assert set(state.attributes) >= ALBUM_KEYS
+    assert state.attributes["added"] == "2026-10-18T20:00:03+00:00"
+    assert "items" not in state.attributes
+
+
+async def test_latest_artist_sensor(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    """The latest artist sensor shows the artist name and image."""
+    state = hass.states.get("sensor.lidarr_latest_artist")
+    assert state.state == "Newest"
+    assert state.attributes["entity_picture"] == "https://assets.fanart.tv/fanart/2.jpg"
+    assert set(state.attributes) >= ARTIST_KEYS
+
+
+async def test_latest_sensors_without_images_or_items(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """No public image means no picture; no items means unknown."""
+    record = history_record(1, 7, "2026-10-18T20:00:00Z", artist="Alpha")
+    record["album"]["images"] = []
+    # The default album endpoint mock returns covers, so mock it without.
+    aioclient_mock.get(f"{URL}/api/v1/system/status", json=SYSTEM_STATUS)
+    aioclient_mock.get(
+        f"{URL}/api/v1/history?page=1",
+        json={"page": 1, "pageSize": 250, "totalRecords": 1, "records": [record]},
+    )
+    aioclient_mock.get(f"{URL}/api/v1/album", json=[{**album_details(7), "images": []}])
+    aioclient_mock.get(f"{URL}/api/v1/artist", json=[])
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    album = hass.states.get("sensor.lidarr_latest_album")
+    assert album.state == "Alpha – Album 7"
+    assert "entity_picture" not in album.attributes
+    artist = hass.states.get("sensor.lidarr_latest_artist")
+    assert artist.state == "unknown"
+    assert "entity_picture" not in artist.attributes
+
+
+def test_latest_title_is_truncated() -> None:
+    """Titles longer than a state allows are cut with an ellipsis."""
+    item = ArtistItem(
+        artist_id=1,
+        artist="x" * 400,
+        added=datetime(2026, 1, 1, tzinfo=UTC),
+        image_url=None,
+        album_count=None,
+        musicbrainz_id=None,
+        lidarr_url=None,
+    )
+    title = _latest_title([item])
+    assert len(title) == 255
+    assert title.endswith("…")

@@ -246,8 +246,13 @@ async def test_options_flow(
     assert coordinator.update_interval.total_seconds() == 3600
     assert coordinator.data.albums is None
 
-    assert hass.states.get("sensor.lidarr_recently_added_albums") is None
-    assert entity_registry.async_get("sensor.lidarr_recently_added_albums") is None
+    for entity_id in (
+        "sensor.lidarr_recently_added_albums",
+        "sensor.lidarr_latest_album",
+    ):
+        assert hass.states.get(entity_id) is None
+        assert entity_registry.async_get(entity_id) is None
+    assert hass.states.get("sensor.lidarr_latest_artist") is not None
     artists = hass.states.get("sensor.lidarr_recently_added_artists")
     assert len(artists.attributes["items"]) == 2
     # Albums are off, so history isn't requested at all.
