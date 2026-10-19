@@ -1,0 +1,12 @@
+{
+  "entity": {
+    "sensor": {
+      "recently_added_albums": {
+        "default": "mdi:album"
+      },
+      "recently_added_artists": {
+        "default": "mdi:account-music"
+      }
+    }
+  }
+}
