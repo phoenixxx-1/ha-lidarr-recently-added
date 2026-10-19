@@ -4,7 +4,10 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-10-19
+
+First public release. It includes everything listed under 0.2.1 and 0.2.0,
+which were never released on their own.
 
 ### Added
 
@@ -18,7 +21,7 @@ All notable changes to this project are documented here. The format follows
   couldn't.
 - The player can be fixed, read from a helper, or chosen each time.
 
-## [0.2.1] - Unreleased
+## [0.2.1] - Not released separately
 
 ### Fixed
 
@@ -41,10 +44,9 @@ All notable changes to this project are documented here. The format follows
   Home Assistant connects to Lidarr on a different address from the one you
   browse to.
 
-## [0.2.0] - Unreleased
+## [0.2.0] - Not released separately
 
-First public release. Version 0.1.0 was a development build and was never
-released.
+Version 0.1.0 was a development build and was never released.
 
 ### Added
 
@@ -64,5 +66,3 @@ released.
 - Diagnostics with the API key and addresses redacted.
 
 [0.3.0]: https://github.com/phoenixxx-1/ha-lidarr-recently-added/releases/tag/v0.3.0
-[0.2.1]: https://github.com/phoenixxx-1/ha-lidarr-recently-added/releases/tag/v0.2.1
-[0.2.0]: https://github.com/phoenixxx-1/ha-lidarr-recently-added/releases/tag/v0.2.0
