@@ -20,10 +20,12 @@ import {
   MA_DOMAIN,
   errorMessage,
   friendlyName,
+  groupLeader,
   initials,
   items,
   maPlayers,
   musicAssistantAvailable,
+  playerLabel,
   relativeTime,
   resolvePlayer,
   type AlbumItem,
@@ -537,7 +539,7 @@ export class LidarrRecentlyAddedCard extends LitElement {
         {
           label: radio ? "Start radio" : "Play now",
           icon: radio ? mdiRadio : mdiPlay,
-          secondary: player ? `on ${friendlyName(hass, player)}` : undefined,
+          secondary: player ? `on ${playerLabel(hass, player)}` : undefined,
           action: play("replace"),
         },
         { label: "Play next", icon: mdiPlaylistPlay, action: play("next") },
@@ -579,17 +581,33 @@ export class LidarrRecentlyAddedCard extends LitElement {
       return;
     }
     const current = resolvePlayer(hass, this.config!);
+    const labels = new Map(players.map((id) => [id, playerLabel(hass, id)]));
+    const counts = new Map<string, number>();
+    labels.forEach((label) => counts.set(label, (counts.get(label) ?? 0) + 1));
     this.lastMenuAt = Date.now();
     openPopup({
       heading: "Play on…",
       subheading: this.mediaName(target),
-      entries: players.map((id) => ({
-        label: friendlyName(hass, id),
-        secondary: stateLabel(hass.states[id]?.state),
-        icon: mdiSpeaker,
-        checked: id === current,
-        action: () => void this.play(target, id, enqueue),
-      })),
+      entries: players.map((id) => {
+        const label = labels.get(id)!;
+        const leader = groupLeader(hass, id);
+        const secondary = [
+          stateLabel(hass.states[id]?.state),
+          leader ? `grouped with ${friendlyName(hass, leader)}` : undefined,
+          // Two players with the same name (the same speaker through two
+          // Music Assistant providers, say): show which is which.
+          (counts.get(label) ?? 0) > 1 ? id : undefined,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return {
+          label,
+          secondary: secondary || undefined,
+          icon: mdiSpeaker,
+          checked: id === current,
+          action: () => void this.play(target, id, enqueue),
+        };
+      }),
       x,
       y,
       returnFocus: target.element,
@@ -610,7 +628,7 @@ export class LidarrRecentlyAddedCard extends LitElement {
     if (radio) {
       data.radio_mode = true;
     }
-    const where = friendlyName(hass, player);
+    const where = playerLabel(hass, player);
     try {
       await hass.callService(MA_DOMAIN, "play_media", data, { entity_id: player }, false);
       const what = radio ? `${name} radio` : name;

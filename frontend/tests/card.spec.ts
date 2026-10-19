@@ -297,3 +297,76 @@ test.describe("hold menu", () => {
     await expect(menu(page)).toHaveCount(0);
   });
 });
+
+test.describe("player names", () => {
+  const MOVE = "media_player.sonos_move";
+  const MOVE_2 = "media_player.sonos_move_2";
+
+  test("a sync group leader is labelled with its members", async ({ page }) => {
+    const group = { group_members: [MOVE, MOVE_2] };
+    await mount(page, {
+      players: [
+        [MOVE, "Sonos Move", "playing", group],
+        [MOVE_2, "Sonos Move 2", "playing", group],
+        ["media_player.kitchen", "Kitchen", "idle"],
+      ],
+    });
+    await albums(page).first().click();
+    const items = menu(page).getByRole("menuitemradio");
+    await expect(items).toHaveText([
+      /^\s*Kitchen\s*Idle\s*$/,
+      /^\s*Sonos Move \+ Move 2\s*Playing\s*$/,
+      /^\s*Sonos Move 2\s*Playing · grouped with Sonos Move\s*$/,
+    ]);
+    await items.nth(1).click();
+    await expect.poll(async () => (await calls(page))[0]?.target).toEqual({ entity_id: MOVE });
+    await expect.poll(() => toasts(page)).toEqual(["Playing Typhoons on Sonos Move + Move 2"]);
+  });
+
+  test("the hold menu names the group too", async ({ page }) => {
+    const group = { group_members: [MOVE, MOVE_2] };
+    await mount(page, {
+      config: { player: MOVE },
+      players: [
+        [MOVE, "Sonos Move", "playing", group],
+        [MOVE_2, "Sonos Move 2", "playing", group],
+      ],
+    });
+    await hold(page, albums(page).first());
+    await expect(menu(page).getByRole("menuitem").first()).toHaveText(
+      /Play now\s*on Sonos Move \+ Move 2/,
+    );
+  });
+
+  test("players with the same name show their entity IDs", async ({ page }) => {
+    await mount(page, {
+      players: [
+        [MOVE, "Sonos Move", "idle"],
+        ["media_player.sonos_move_airplay", "Sonos Move", "idle"],
+        ["media_player.kitchen", "Kitchen", "idle"],
+      ],
+    });
+    await albums(page).first().click();
+    await expect(menu(page).getByRole("menuitemradio")).toHaveText([
+      /^\s*Kitchen\s*Idle\s*$/,
+      /^\s*Sonos Move\s*Idle · media_player\.sonos_move\s*$/,
+      /^\s*Sonos Move\s*Idle · media_player\.sonos_move_airplay\s*$/,
+    ]);
+  });
+
+  test("players from other integrations aren't listed", async ({ page }) => {
+    await mount(page, {
+      players: [[MOVE, "Sonos Move", "idle"]],
+      // The core Sonos entity for the same speaker: same name, not Music Assistant.
+      otherPlayers: {
+        "media_player.sonos_move_core": {
+          entity_id: "media_player.sonos_move_core",
+          state: "idle",
+          attributes: { friendly_name: "Sonos Move" },
+        },
+      },
+    });
+    await albums(page).first().click();
+    await expect(menu(page).getByRole("menuitemradio")).toHaveText([/^\s*Sonos Move\s*Idle\s*$/]);
+  });
+});

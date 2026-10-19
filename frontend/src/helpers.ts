@@ -75,6 +75,42 @@ export function maPlayers(hass: Hass): string[] {
     .sort((a, b) => friendlyName(hass, a).localeCompare(friendlyName(hass, b)));
 }
 
+/** The player's sync group, leader first, or [] when it isn't grouped. */
+export function groupMembers(hass: Hass, entityId: string): string[] {
+  const members = hass.states[entityId]?.attributes.group_members;
+  if (!Array.isArray(members)) {
+    return [];
+  }
+  const ids = members.filter((m): m is string => typeof m === "string");
+  return ids.length > 1 && ids.includes(entityId) ? ids : [];
+}
+
+/** The group leader when this player follows another one. */
+export function groupLeader(hass: Hass, entityId: string): string | undefined {
+  const members = groupMembers(hass, entityId);
+  return members.length && members[0] !== entityId ? members[0] : undefined;
+}
+
+/**
+ * A player's name, with its followers when it leads a sync group, so that
+ * choosing it clearly plays to the whole group: "Sonos Move + Move 2".
+ */
+export function playerLabel(hass: Hass, entityId: string): string {
+  const name = friendlyName(hass, entityId);
+  const members = groupMembers(hass, entityId);
+  if (!members.length || members[0] !== entityId) {
+    return name;
+  }
+  const brand = name.split(" ")[0];
+  const others = members.slice(1).map((member) => {
+    const memberName = friendlyName(hass, member);
+    // "Sonos Move 2" next to "Sonos Move" reads better as "Move 2".
+    const words = memberName.split(" ");
+    return words.length > 1 && words[0] === brand ? words.slice(1).join(" ") : memberName;
+  });
+  return [name, ...others].join(" + ");
+}
+
 export function musicAssistantAvailable(hass: Hass): boolean {
   return hass.services?.[MA_DOMAIN]?.play_media !== undefined;
 }

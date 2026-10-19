@@ -19,7 +19,9 @@ which were never released on their own.
   radio. Hold for Play now, Play next, Add to queue, Choose player… and,
   optionally, Open in Lidarr. Messages confirm what played, or say why it
   couldn't.
-- The player can be fixed, read from a helper, or chosen each time.
+- The player can be fixed, read from a helper, or chosen each time. In the
+  player list, a sync group leader is shown with its members ("Sonos Move +
+  Move 2"), and players with the same name show their entity IDs.
 
 ## [0.2.1] - Not released separately
 

@@ -75,6 +75,10 @@ export interface MountOptions {
   /** Make play_media fail with this message. */
   failWith?: string;
   extraStates?: Record<string, unknown>;
+  /** Music Assistant players: [entity_id, name, state, extra attributes]. */
+  players?: [string, string, string, Record<string, unknown>?][];
+  /** States of players from other integrations (not Music Assistant). */
+  otherPlayers?: Record<string, unknown>;
   dark?: boolean;
   width?: number;
 }
@@ -147,14 +151,15 @@ const PAGE = `<!doctype html>
   document.addEventListener("hass-notification", (e) => window.toasts.push(e.detail.message));
   window.setup = (opts) => {
     if (opts.dark) document.documentElement.classList.add("dark");
-    const players = opts.musicAssistant === false ? [] : [
+    const players = opts.musicAssistant === false ? [] : (opts.players ?? [
       ["media_player.living_room", "Living Room", "idle"],
       ["media_player.kitchen", "Kitchen", "playing"],
-    ];
+    ]);
     const states = {
       "sensor.lidarr_recently_added_albums": { entity_id: "sensor.lidarr_recently_added_albums", state: opts.albums[0]?.added ?? "unknown", attributes: { items: opts.albums } },
       "sensor.lidarr_recently_added_artists": { entity_id: "sensor.lidarr_recently_added_artists", state: opts.artists[0]?.added ?? "unknown", attributes: { items: opts.artists } },
-      ...Object.fromEntries(players.map(([id, name, state]) => [id, { entity_id: id, state, attributes: { friendly_name: name } }])),
+      ...Object.fromEntries(players.map(([id, name, state, attrs]) => [id, { entity_id: id, state, attributes: { friendly_name: name, ...(attrs ?? {}) } }])),
+      ...(opts.otherPlayers ?? {}),
       ...(opts.extraStates ?? {}),
     };
     const entities = {
