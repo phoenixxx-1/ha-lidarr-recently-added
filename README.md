@@ -5,9 +5,15 @@
 [![Tests](https://github.com/phoenixxx-1/ha-lidarr-recently-added/actions/workflows/tests.yml/badge.svg)](https://github.com/phoenixxx-1/ha-lidarr-recently-added/actions/workflows/tests.yml)
 
 A Home Assistant integration that shows the albums and artists most recently
-added to your [Lidarr](https://lidarr.audio/) library, with cover art, so you
-can put them on a dashboard. It also fires an event when a new album or artist
-arrives, so you can be notified without polling.
+added to your [Lidarr](https://lidarr.audio/) library, with cover art. It
+includes a dashboard card that plays an album in Music Assistant when you tap
+its cover, and it fires an event when a new album or artist arrives, so you
+can be notified without polling.
+
+<p>
+  <img src="https://raw.githubusercontent.com/phoenixxx-1/ha-lidarr-recently-added/main/docs/screenshots/strip-desktop-light.webp" alt="The card on a dashboard: a row of album covers and a row of artist avatars" width="640">
+  <img src="https://raw.githubusercontent.com/phoenixxx-1/ha-lidarr-recently-added/main/docs/screenshots/strip-phone-dark.webp" alt="The same card on a phone in dark mode" width="180">
+</p>
 
 ## How it differs from the core Lidarr integration
 
@@ -25,6 +31,7 @@ not touch the core integration's configuration.
 | Recently added albums, with covers | — | ✅ |
 | Recently added artists, with images | — | ✅ |
 | Events for new albums and artists | — | ✅ |
+| Dashboard card with tap to play (Music Assistant) | — | ✅ |
 
 ## Installation
 
@@ -109,7 +116,7 @@ the timestamp.
 > state, not its attributes. To see the full list, select **Recently added
 > albums** (or artists) and expand **Attributes** in the dialog that opens.
 > The list is meant for dashboard cards; see the
-> [examples](#dashboard-examples) below.
+> [dashboard card](#dashboard-card) below.
 
 ### `sensor.lidarr_recently_added_albums`
 
@@ -149,7 +156,7 @@ database.
 
 - **State:** `Artist – Album` for the newest album, or the newest artist's
   name. `unknown` when there is nothing yet.
-- **Picture:** the album cover or artist image, when Lidarr has a public one.
+- **Picture:** the album cover or artist image, when Lidarr has one.
 - **Attributes:** the same fields as one entry of `items` above.
 
 ### Where the data comes from
@@ -222,16 +229,94 @@ Example `lidarr_recently_added_album` payload:
 To watch events, open **Developer tools → Events** and listen for
 `lidarr_recently_added_album`.
 
-## Dashboard examples
+## Dashboard card
 
-For a quick start, add the device's sensors to a dashboard with **Add to
-dashboard** on the device page. The Latest sensors show the newest album and
-artist with their pictures. For a full list, use the examples below.
+The integration includes a card, `custom:lidarr-recently-added-card`. There is
+nothing extra to install: Home Assistant loads it on every dashboard once the
+integration is set up, and it always matches the integration's version.
 
-Both examples use only built-in cards. Change the entity ID if your device
-isn't called `Lidarr`.
+<p>
+  <img src="https://raw.githubusercontent.com/phoenixxx-1/ha-lidarr-recently-added/main/docs/screenshots/wall-desktop-dark.webp" alt="Wall layout: a grid of album covers filling the width" width="640">
+  <img src="https://raw.githubusercontent.com/phoenixxx-1/ha-lidarr-recently-added/main/docs/screenshots/menu-phone-dark.webp" alt="Holding a cover opens a menu: Play now, Play next, Add to queue, Choose player" width="180">
+</p>
 
-### List of the latest albums
+### Adding it
+
+Edit a dashboard, choose **Add card**, and search for **Lidarr Recently
+Added**. The card has a visual editor. In YAML:
+
+```yaml
+type: custom:lidarr-recently-added-card
+albums_entity: sensor.lidarr_recently_added_albums
+artists_entity: sensor.lidarr_recently_added_artists
+layout: strip
+player: media_player.living_room
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `albums_entity` | | The **Recently added albums** sensor. |
+| `artists_entity` | | The **Recently added artists** sensor. Set at least one of the two. |
+| `title` | none | Optional heading. |
+| `layout` | `strip` | `strip`: one row that scrolls sideways, good for a narrow column. `wall`: a grid that fills the card's width. |
+| `max_items` | all | Show at most this many albums and artists. The sensors' **Number of items** option sets the upper limit. |
+| `show_artists` | `true` | Show the row of artist avatars. |
+| `show_added` | `true` | Show when each item was added, for example "Added 2h ago". |
+| `player` | none | The Music Assistant player to play on. |
+| `player_entity` | none | A helper (`input_select`, `select`, `input_text` or `text`) holding the player's entity ID or name. Takes priority over `player`, so other controls can choose the player. |
+| `artist_radio` | `true` | Tapping an artist starts radio based on them, rather than playing their albums. |
+| `lidarr_link` | `false` | Add **Open in Lidarr** to the hold menu. See below. |
+
+The card sizes itself in sections views. Covers use your theme's colours and
+fonts, in light and dark mode. If you use card-mod, these variables adjust the
+sizes: `--lra-cover-size` (strip covers, 132px), `--lra-wall-min` (smallest
+wall tile, 96px), `--lra-avatar-size` (72px), `--lra-radius` (10px).
+
+### Playing music
+
+Playback uses [Music Assistant](https://www.home-assistant.io/integrations/music_assistant/).
+
+- **Tap** a cover to play the album on your player, replacing what's playing.
+  A message confirms it: "Playing Typhoons on Living Room".
+- **Hold** a cover (or right-click it, or press the context-menu key) for more:
+  **Play now**, **Play next**, **Add to queue** and **Choose player…**.
+- **Tap an artist** to start radio based on that artist, or to play their
+  music if `artist_radio` is `false`.
+
+Which player is used:
+
+1. If `player_entity` is set and names a player, that player.
+2. Otherwise `player`.
+3. If neither is set, the card asks each time, listing your Music Assistant
+   players.
+
+Albums are played by name: the card asks Music Assistant for the album title
+by that artist. The album needs to be in Music Assistant's library, which
+usually means its library scan has run since Lidarr imported the files. If
+Music Assistant can't find it, the card shows the reason, for example "No
+playable items found", instead of failing silently.
+
+Without Music Assistant, tapping does nothing and the hold menu has no play
+options.
+
+<p>
+  <img src="https://raw.githubusercontent.com/phoenixxx-1/ha-lidarr-recently-added/main/docs/screenshots/picker-phone-light.webp" alt="With no player set, tapping asks which Music Assistant player to use" width="180">
+  <img src="https://raw.githubusercontent.com/phoenixxx-1/ha-lidarr-recently-added/main/docs/screenshots/toast-error-desktop-light.webp" alt="Messages after playing an album, and when Music Assistant can't find one" width="640">
+</p>
+
+### Open in Lidarr
+
+The card doesn't link to Lidarr by default: the address Home Assistant uses is
+often an internal one that won't open on, say, a wall tablet, or leads to
+Lidarr's login page. Set `lidarr_link: true` to add **Open in Lidarr** to the
+hold menu when the link works from the devices that show your dashboard. If
+your browser reaches Lidarr on a different address from Home Assistant, set
+that address under [Advanced configuration](#advanced-configuration).
+
+### Without the card
+
+The sensors work with any card. This markdown card lists the latest albums
+using only built-in cards:
 
 ```yaml
 type: markdown
@@ -242,36 +327,15 @@ content: |-
   | | Album | Added |
   |:-:|---|---|
   {%- for a in items %}
-  | {% if a.cover_url %}<img src="{{ a.cover_url }}" width="56" height="56">{% endif %} | **[{{ a.album }}]({{ a.lidarr_url }})**<br>{{ a.artist }}{% if a.release_date %} · {{ a.release_date[:4] }}{% endif %} | {{ (a.added | as_datetime | relative_time) }} ago |
+  | {% if a.cover_url %}<img src="{{ a.cover_url }}" width="56" height="56">{% endif %} | **{{ a.album }}**<br>{{ a.artist }}{% if a.release_date %} · {{ a.release_date[:4] }}{% endif %} | {{ (a.added | as_datetime | relative_time) }} ago |
   {%- endfor %}
   {% else %}
   Nothing imported yet.
   {% endif %}
 ```
 
-### Grid of cover tiles
-
-Change `columns` to fit your dashboard.
-
-```yaml
-type: markdown
-title: New in the library
-content: |-
-  {% set columns = 4 %}
-  {% set items = state_attr('sensor.lidarr_recently_added_albums', 'items') or [] %}
-  {% if items %}
-  |{% for _ in range(columns) %} |{% endfor %}
-  |{% for _ in range(columns) %}:-:|{% endfor %}
-  {%- for row in items | batch(columns, '') %}
-  |{% for a in row %}{% if a %}{% if a.cover_url %}[<img src="{{ a.cover_url }}" width="110" height="110">]({{ a.lidarr_url }}){% endif %}<br>**{{ a.album }}**<br>{{ a.artist }}{% endif %} |{% endfor %}
-  {%- endfor %}
-  {% else %}
-  Nothing imported yet.
-  {% endif %}
-```
-
-For artists, use `sensor.lidarr_recently_added_artists` with `image_url` in
-place of `cover_url` and `artist` in place of `album`.
+Keep `content: |-` as written: `>` or `>-` joins the lines and breaks the
+table.
 
 ## Example automation: notify on a new album
 
@@ -304,6 +368,12 @@ ignore them.
 - **No cover art:** the item has no image in Lidarr either. Check the artist
   or album in Lidarr; refreshing the artist there usually fetches artwork.
   Diagnostics list which cached image each item uses.
+- **Card shows "Custom element doesn't exist":** check the integration is set
+  up and loaded, then reload the page. After an update, a hard refresh (or
+  clearing the app's cache in the Companion app) makes sure the new card
+  loads.
+- **Tapping a cover does nothing:** Music Assistant isn't set up, or the card
+  can't find any Music Assistant players.
 - **Diagnostics:** on the integration's page, open the menu (⋮) and choose
   **Download diagnostics**. The API key and addresses are redacted.
 

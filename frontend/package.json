@@ -1,0 +1,22 @@
+{
+  "name": "lidarr-recently-added-card",
+  "private": true,
+  "type": "module",
+  "description": "Lovelace card bundled with the Lidarr Recently Added integration",
+  "license": "MIT",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@mdi/js": "7.4.47",
+    "lit": "3.3.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "22.19.1",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}

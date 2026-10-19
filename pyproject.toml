@@ -1,6 +1,6 @@
 [project]
 name = "ha-lidarr-recently-added"
-version = "0.2.1"
+version = "0.3.0"
 description = "Home Assistant integration for recently added Lidarr albums and artists"
 requires-python = ">=3.14"
 license = "MIT"
@@ -33,6 +33,8 @@ allowed-confusables = ["–"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLC0415", "D103", "PLR0917"]
+# Demo tooling for screenshots, not shipped.
+"scripts/**" = ["D", "S101", "S311", "T201", "ASYNC240"]
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true

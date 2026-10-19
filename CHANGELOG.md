@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - Unreleased
+
+### Added
+
+- A dashboard card, `custom:lidarr-recently-added-card`, bundled with the
+  integration and loaded automatically. Album covers in a scrolling strip or
+  a wall, artist avatars (initials when there's no image), theme colours in
+  light and dark mode, and a visual editor.
+- Tap a cover to play the album in Music Assistant, or an artist to start
+  radio. Hold for Play now, Play next, Add to queue, Choose player… and,
+  optionally, Open in Lidarr. Messages confirm what played, or say why it
+  couldn't.
+- The player can be fixed, read from a helper, or chosen each time.
+
 ## [0.2.1] - Unreleased
 
 ### Fixed
@@ -49,5 +63,6 @@ released.
   new items.
 - Diagnostics with the API key and addresses redacted.
 
+[0.3.0]: https://github.com/phoenixxx-1/ha-lidarr-recently-added/releases/tag/v0.3.0
 [0.2.1]: https://github.com/phoenixxx-1/ha-lidarr-recently-added/releases/tag/v0.2.1
 [0.2.0]: https://github.com/phoenixxx-1/ha-lidarr-recently-added/releases/tag/v0.2.0
