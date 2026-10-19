@@ -14,6 +14,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 from custom_components.lidarr_recently_added.const import (
     CONF_ALBUMS_ENABLED,
     CONF_ARTISTS_ENABLED,
+    CONF_LINK_URL,
     CONF_MAX_ITEMS,
     CONF_SCAN_INTERVAL,
     DOMAIN,
@@ -230,6 +231,7 @@ async def test_options_flow(
             CONF_SCAN_INTERVAL: 60.0,
             CONF_ALBUMS_ENABLED: False,
             CONF_ARTISTS_ENABLED: True,
+            "advanced": {},
         },
     )
     await hass.async_block_till_done()
@@ -257,3 +259,50 @@ async def test_options_flow(
     assert len(artists.attributes["items"]) == 2
     # Albums are off, so history isn't requested at all.
     assert not any("/history" in str(call[1]) for call in aioclient_mock.mock_calls)
+
+
+async def test_options_flow_link_url(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    setup_integration: MockConfigEntry,
+) -> None:
+    """A separate link address is validated, normalised and used for links."""
+    entry = setup_integration
+    base = {
+        CONF_MAX_ITEMS: 10,
+        CONF_SCAN_INTERVAL: 30,
+        CONF_ALBUMS_ENABLED: True,
+        CONF_ARTISTS_ENABLED: True,
+    }
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**base, "advanced": {"link_url": "lidarr.example.com"}}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_link_url"}
+
+    aioclient_mock.clear_requests()
+    mock_lidarr(aioclient_mock)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        # Home Assistant can't reach this address, and doesn't need to.
+        {**base, "advanced": {"link_url": "HTTPS://Lidarr.Example.com/"}},
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_LINK_URL] == "https://lidarr.example.com"
+
+    items = hass.states.get("sensor.lidarr_recently_added_albums").attributes["items"]
+    assert items[0]["lidarr_url"] == "https://lidarr.example.com/album/mb-album-1"
+    # API calls still go to the connection URL.
+    assert all(str(call[1]).startswith(URL) for call in aioclient_mock.mock_calls)
+
+    # Clearing the field goes back to the connection URL.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**base, "advanced": {"link_url": ""}}
+    )
+    await hass.async_block_till_done()
+    assert CONF_LINK_URL not in entry.options
+    items = hass.states.get("sensor.lidarr_recently_added_albums").attributes["items"]
+    assert items[0]["lidarr_url"] == f"{URL}/album/mb-album-1"

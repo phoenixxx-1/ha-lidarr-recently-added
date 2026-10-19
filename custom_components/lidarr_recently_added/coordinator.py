@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import heapq
+import re
 from typing import Any
 
+from yarl import URL
+
+from homeassistant.components.http.auth import async_sign_path
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -18,6 +22,7 @@ from .api import LidarrAuthenticationError, LidarrClient, LidarrError
 from .const import (
     CONF_ALBUMS_ENABLED,
     CONF_ARTISTS_ENABLED,
+    CONF_LINK_URL,
     CONF_MAX_ITEMS,
     CONF_SCAN_INTERVAL,
     DEFAULT_MAX_ITEMS,
@@ -28,13 +33,39 @@ from .const import (
     HISTORY_IMPORT_EVENT_TYPES,
     HISTORY_MAX_PAGES,
     HISTORY_PAGE_SIZE,
+    IMAGE_URL_LIFETIME_DAYS,
+    IMAGE_URL_RESIGN_DAYS,
+    IMAGE_VIEW_URL,
     LOGGER,
 )
 
 type LidarrRecentlyAddedConfigEntry = ConfigEntry[LidarrRecentlyAddedRuntimeData]
 
+# Preferred image types, best first. Artists skip clearlogo and logo: they are
+# transparent wordmarks and look wrong cropped to a circle.
 ALBUM_COVER_TYPES = ("cover", "disc")
-ARTIST_IMAGE_TYPES = ("poster", "fanart")
+ARTIST_IMAGE_TYPES = ("poster", "fanart", "banner")
+
+# Lidarr keeps resized copies of some image types (MediaCoverService
+# GetDefaultHeights). It serves the full-size file when a resized one is
+# missing, which is always the case for album covers today.
+RESIZED_HEIGHTS = {"poster": 500, "cover": 500, "disc": 500, "fanart": 360}
+
+# Lidarr's media cover route only serves these extensions.
+IMAGE_EXTENSIONS = (".jpg", ".png", ".gif")
+_LOCAL_FILENAME = re.compile(r"^(?P<type>[a-z]+)(?:-\d+)?(?P<ext>\.(?:jpg|png|gif))$")
+
+type ImageUrlFn = Callable[[ImageRef | None], str | None]
+
+
+@dataclass(frozen=True, slots=True)
+class ImageRef:
+    """An image Lidarr has cached, served through Home Assistant's image view."""
+
+    kind: str
+    item_id: int
+    filename: str
+    version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +77,7 @@ class AlbumItem:
     album: str | None
     release_date: str | None
     added: datetime
-    cover_url: str | None
+    cover: ImageRef | None
     album_type: str | None
     track_count: int | None
     musicbrainz_id: str | None
@@ -59,18 +90,18 @@ class AlbumItem:
         return " – ".join(parts) or None
 
     @property
-    def picture_url(self) -> str | None:
-        """Return the public cover image URL."""
-        return self.cover_url
+    def image(self) -> ImageRef | None:
+        """Return the album cover."""
+        return self.cover
 
-    def as_dict(self) -> dict[str, Any]:
+    def as_dict(self, image_url: ImageUrlFn) -> dict[str, Any]:
         """Return the public, JSON-serialisable representation."""
         return {
             "artist": self.artist,
             "album": self.album,
             "release_date": self.release_date,
             "added": self.added.isoformat(),
-            "cover_url": self.cover_url,
+            "cover_url": image_url(self.cover),
             "album_type": self.album_type,
             "track_count": self.track_count,
             "musicbrainz_id": self.musicbrainz_id,
@@ -85,7 +116,7 @@ class ArtistItem:
     artist_id: int
     artist: str | None
     added: datetime
-    image_url: str | None
+    image: ImageRef | None
     album_count: int | None
     musicbrainz_id: str | None
     lidarr_url: str | None
@@ -95,17 +126,12 @@ class ArtistItem:
         """Return the artist name."""
         return self.artist
 
-    @property
-    def picture_url(self) -> str | None:
-        """Return the public artist image URL."""
-        return self.image_url
-
-    def as_dict(self) -> dict[str, Any]:
+    def as_dict(self, image_url: ImageUrlFn) -> dict[str, Any]:
         """Return the public, JSON-serialisable representation."""
         return {
             "artist": self.artist,
             "added": self.added.isoformat(),
-            "image_url": self.image_url,
+            "image_url": image_url(self.image),
             "album_count": self.album_count,
             "musicbrainz_id": self.musicbrainz_id,
             "lidarr_url": self.lidarr_url,
@@ -146,30 +172,55 @@ def _parse_date(value: Any) -> str | None:
     return parsed.date().isoformat() if parsed else None
 
 
-def _public_image_url(images: Any, cover_types: Iterable[str]) -> str | None:
-    """Pick the first public remote image URL matching the preferred types.
+def pick_image(
+    kind: str, item_id: int, images: Any, cover_types: Iterable[str]
+) -> ImageRef | None:
+    """Pick the best image Lidarr lists for an artist or album.
 
-    Only absolute http(s) URLs are returned. The local /MediaCover paths
-    need Lidarr credentials, so they are never used.
+    Any listed image counts, whatever its ``remoteUrl`` holds. Since Lidarr
+    2.14.1, artists whose metadata lists no images get entries rebuilt from
+    Lidarr's cover cache, with a file path inside Lidarr as ``remoteUrl``.
+    Those are fine here: the image is fetched from Lidarr's cache by type,
+    not from ``remoteUrl``.
     """
     if not isinstance(images, list):
         return None
-    by_type: dict[str, str] = {}
+    by_type: dict[str, Mapping[str, Any]] = {}
     for image in images:
-        if not isinstance(image, Mapping):
-            continue
-        remote = image.get("remoteUrl")
-        cover_type = image.get("coverType")
-        if (
-            isinstance(remote, str)
-            and isinstance(cover_type, str)
-            and remote.lower().startswith(("https://", "http://"))
-        ):
-            by_type.setdefault(cover_type.lower(), remote)
+        if isinstance(image, Mapping) and isinstance(image.get("coverType"), str):
+            by_type.setdefault(image["coverType"].lower(), image)
     for cover_type in cover_types:
-        if cover_type in by_type:
-            return by_type[cover_type]
+        if (image := by_type.get(cover_type)) is not None:
+            extension, version = _image_extension_and_version(image)
+            height = RESIZED_HEIGHTS.get(cover_type)
+            suffix = f"-{height}" if height else ""
+            return ImageRef(
+                kind=kind,
+                item_id=item_id,
+                filename=f"{cover_type}{suffix}{extension}",
+                version=version,
+            )
     return None
+
+
+def _image_extension_and_version(image: Mapping[str, Any]) -> tuple[str, str | None]:
+    """Return the cached file's extension and Lidarr's lastWrite marker."""
+    url = image.get("url")
+    if isinstance(url, str) and "/MediaCover/" in url:
+        # Mapped to Lidarr's cache, e.g. /MediaCover/230/poster.jpg?lastWrite=1
+        parsed = URL(url)
+        if match := _LOCAL_FILENAME.match(parsed.name):
+            return match["ext"], parsed.query.get("lastWrite")
+    for candidate in (image.get("extension"), _suffix(image.get("remoteUrl"))):
+        if isinstance(candidate, str) and candidate.lower() in IMAGE_EXTENSIONS:
+            return candidate.lower(), None
+    return ".jpg", None
+
+
+def _suffix(value: Any) -> str | None:
+    if not isinstance(value, str) or "." not in value.rsplit("/", 1)[-1]:
+        return None
+    return "." + value.rsplit(".", 1)[-1].split("?", 1)[0]
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -201,7 +252,7 @@ def group_history_by_album(
 def build_album_items(
     history: Iterable[Mapping[str, Any]],
     albums_by_id: Mapping[int, Mapping[str, Any]],
-    base_url: str,
+    link_base_url: str,
 ) -> list[AlbumItem]:
     """Build album items from grouped history records and album details."""
     items: list[AlbumItem] = []
@@ -241,18 +292,22 @@ def build_album_items(
                 album=_str_or_none(album.get("title")),
                 release_date=_parse_date(album.get("releaseDate")),
                 added=added,
-                cover_url=_public_image_url(album.get("images"), ALBUM_COVER_TYPES),
+                cover=pick_image(
+                    "album", album_id, album.get("images"), ALBUM_COVER_TYPES
+                ),
                 album_type=_str_or_none(album.get("albumType")),
                 track_count=track_count,
                 musicbrainz_id=foreign_id,
-                lidarr_url=f"{base_url}/album/{foreign_id}" if foreign_id else None,
+                lidarr_url=(
+                    f"{link_base_url}/album/{foreign_id}" if foreign_id else None
+                ),
             )
         )
     return items
 
 
 def build_artist_items(
-    artists: Iterable[Mapping[str, Any]], max_items: int, base_url: str
+    artists: Iterable[Mapping[str, Any]], max_items: int, link_base_url: str
 ) -> list[ArtistItem]:
     """Return the ``max_items`` most recently added artists, newest first."""
     dated: list[tuple[datetime, Mapping[str, Any]]] = []
@@ -268,27 +323,23 @@ def build_artist_items(
     for added, artist in newest:
         statistics = artist.get("statistics")
         foreign_id = _str_or_none(artist.get("foreignArtistId"))
-        image_url = _public_image_url(artist.get("images"), ARTIST_IMAGE_TYPES)
-        remote_poster = artist.get("remotePoster")
-        if (
-            image_url is None
-            and isinstance(remote_poster, str)
-            and remote_poster.lower().startswith(("https://", "http://"))
-        ):
-            image_url = remote_poster
         items.append(
             ArtistItem(
                 artist_id=artist["id"],
                 artist=_str_or_none(artist.get("artistName")),
                 added=added,
-                image_url=image_url,
+                image=pick_image(
+                    "artist", artist["id"], artist.get("images"), ARTIST_IMAGE_TYPES
+                ),
                 album_count=(
                     _int_or_none(statistics.get("albumCount"))
                     if isinstance(statistics, Mapping)
                     else None
                 ),
                 musicbrainz_id=foreign_id,
-                lidarr_url=f"{base_url}/artist/{foreign_id}" if foreign_id else None,
+                lidarr_url=(
+                    f"{link_base_url}/artist/{foreign_id}" if foreign_id else None
+                ),
             )
         )
     return items
@@ -320,6 +371,10 @@ class LidarrRecentlyAddedCoordinator(DataUpdateCoordinator[RecentlyAddedData]):
         self.max_items: int = options.get(CONF_MAX_ITEMS, DEFAULT_MAX_ITEMS)
         self.albums_enabled: bool = options.get(CONF_ALBUMS_ENABLED, True)
         self.artists_enabled: bool = options.get(CONF_ARTISTS_ENABLED, True)
+        # Links point at the address people browse to, which can differ from
+        # the one Home Assistant connects to.
+        self.link_base_url: str = options.get(CONF_LINK_URL) or client.base_url
+        self._signed_urls: dict[str, tuple[str, datetime]] = {}
         # IDs from the last successful refresh. None until the first one, so
         # the initial list is never announced as new.
         self._known_album_ids: set[int] | None = None
@@ -370,12 +425,12 @@ class LidarrRecentlyAddedCoordinator(DataUpdateCoordinator[RecentlyAddedData]):
             for album in details
             if isinstance(album, Mapping) and isinstance(album.get("id"), int)
         }
-        return build_album_items(newest, albums_by_id, self.client.base_url)
+        return build_album_items(newest, albums_by_id, self.link_base_url)
 
     async def _async_fetch_artists(self) -> list[ArtistItem]:
         """Fetch the library and keep only the newest ``max_items`` artists."""
         artists = await self.client.async_get_artists()
-        return build_artist_items(artists, self.max_items, self.client.base_url)
+        return build_artist_items(artists, self.max_items, self.link_base_url)
 
     def _queue_new_item_events(
         self, albums: list[AlbumItem] | None, artists: list[ArtistItem] | None
@@ -385,7 +440,7 @@ class LidarrRecentlyAddedCoordinator(DataUpdateCoordinator[RecentlyAddedData]):
             ids = {item.album_id for item in albums}
             if self._known_album_ids is not None:
                 self._pending_events.extend(
-                    (EVENT_NEW_ALBUM, item.as_dict())
+                    (EVENT_NEW_ALBUM, item.as_dict(self.image_url))
                     for item in reversed(albums)
                     if item.album_id not in self._known_album_ids
                 )
@@ -394,7 +449,7 @@ class LidarrRecentlyAddedCoordinator(DataUpdateCoordinator[RecentlyAddedData]):
             ids = {item.artist_id for item in artists}
             if self._known_artist_ids is not None:
                 self._pending_events.extend(
-                    (EVENT_NEW_ARTIST, item.as_dict())
+                    (EVENT_NEW_ARTIST, item.as_dict(self.image_url))
                     for item in reversed(artists)
                     if item.artist_id not in self._known_artist_ids
                 )
@@ -417,3 +472,36 @@ class LidarrRecentlyAddedCoordinator(DataUpdateCoordinator[RecentlyAddedData]):
     def async_start_event_listener(self) -> CALLBACK_TYPE:
         """Start firing events after each refresh. Returns the unsubscribe."""
         return self.async_add_listener(self.async_fire_pending_events)
+
+    @callback
+    def image_url(self, image: ImageRef | None) -> str | None:
+        """Return a signed Home Assistant URL for an image, or None.
+
+        The URL points at this integration's image view, which fetches the
+        file from Lidarr with the API key. Signing lets a browser ``<img>``
+        load it without an access token. Signed URLs are reused for a few
+        days so attributes don't change on every refresh.
+        """
+        if image is None:
+            return None
+        path = (
+            f"{IMAGE_VIEW_URL}/{self.config_entry.entry_id}/"
+            f"{image.kind}/{image.item_id}/{image.filename}"
+        )
+        if image.version:
+            path = str(URL(path).with_query(v=image.version))
+        now = dt_util.utcnow()
+        if (cached := self._signed_urls.get(path)) and now - cached[1] < timedelta(
+            days=IMAGE_URL_RESIGN_DAYS
+        ):
+            return cached[0]
+        if len(self._signed_urls) > 500:
+            self._signed_urls.clear()
+        signed = async_sign_path(
+            self.hass,
+            path,
+            timedelta(days=IMAGE_URL_LIFETIME_DAYS),
+            use_content_user=True,
+        )
+        self._signed_urls[path] = (signed, now)
+        return signed

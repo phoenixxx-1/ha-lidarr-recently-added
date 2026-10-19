@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.const import CONF_URL
+from homeassistant.const import ATTR_ENTITY_PICTURE, CONF_URL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
@@ -124,8 +124,11 @@ class LidarrRecentlyAddedSensor(
 
     _attr_has_entity_name = True
     # The list can exceed the recorder's 16 KB attribute limit, and its
-    # history has no value.
-    _unrecorded_attributes = frozenset({ATTR_ITEMS})
+    # history has no value. Image URLs carry a signature that expires, so
+    # there is no point storing them either.
+    _unrecorded_attributes = frozenset(
+        {ATTR_ITEMS, ATTR_ENTITY_PICTURE, "cover_url", "image_url"}
+    )
     entity_description: LidarrRecentlyAddedSensorDescription
 
     def __init__(
@@ -158,14 +161,15 @@ class LidarrRecentlyAddedSensor(
 
     @property
     def entity_picture(self) -> str | None:
-        """Show the newest item's public cover or image in place of the icon."""
+        """Show the newest item's cover or image in place of the icon."""
         items = self._items
-        return items[0].picture_url if items else None
+        return self.coordinator.image_url(items[0].image) if items else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return the newest items, or the newest item's fields."""
         items = self._items
+        image_url = self.coordinator.image_url
         if self.entity_description.list_attributes:
-            return {ATTR_ITEMS: [item.as_dict() for item in items]}
-        return items[0].as_dict() if items else None
+            return {ATTR_ITEMS: [item.as_dict(image_url) for item in items]}
+        return items[0].as_dict(image_url) if items else None

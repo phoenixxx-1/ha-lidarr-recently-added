@@ -15,6 +15,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_API_KEY, CONF_URL, CONF_VERIFY_SSL
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.data_entry_flow import SectionConfig, section
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     NumberSelector,
@@ -33,8 +34,10 @@ from .api import (
     normalize_url,
 )
 from .const import (
+    CONF_ADVANCED,
     CONF_ALBUMS_ENABLED,
     CONF_ARTISTS_ENABLED,
+    CONF_LINK_URL,
     CONF_MAX_ITEMS,
     CONF_SCAN_INTERVAL,
     DEFAULT_MAX_ITEMS,
@@ -192,14 +195,23 @@ class LidarrRecentlyAddedOptionsFlow(OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(
-                data={
-                    **user_input,
-                    CONF_MAX_ITEMS: int(user_input[CONF_MAX_ITEMS]),
-                    CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
-                }
-            )
+            advanced = user_input.pop(CONF_ADVANCED, {})
+            options: dict[str, Any] = {
+                **user_input,
+                CONF_MAX_ITEMS: int(user_input[CONF_MAX_ITEMS]),
+                CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
+            }
+            if link_url := (advanced.get(CONF_LINK_URL) or "").strip():
+                # Only checked for shape: Home Assistant may not be able to
+                # reach the address people browse to.
+                try:
+                    options[CONF_LINK_URL] = normalize_url(link_url)
+                except InvalidUrlError:
+                    errors["base"] = "invalid_link_url"
+            if not errors:
+                return self.async_create_entry(data=options)
 
         schema = vol.Schema(
             {
@@ -224,11 +236,32 @@ class LidarrRecentlyAddedOptionsFlow(OptionsFlowWithReload):
                 ),
                 vol.Required(CONF_ALBUMS_ENABLED, default=True): bool,
                 vol.Required(CONF_ARTISTS_ENABLED, default=True): bool,
+                vol.Required(CONF_ADVANCED): section(
+                    vol.Schema(
+                        {
+                            vol.Optional(CONF_LINK_URL): TextSelector(
+                                TextSelectorConfig(type=TextSelectorType.URL)
+                            ),
+                        }
+                    ),
+                    SectionConfig(collapsed=True),
+                ),
             }
         )
+        current = user_input or dict(self.config_entry.options)
+        suggested = {
+            **current,
+            CONF_ADVANCED: {
+                CONF_LINK_URL: (
+                    advanced.get(CONF_LINK_URL)
+                    if user_input is not None
+                    else current.get(CONF_LINK_URL)
+                )
+                or ""
+            },
+        }
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(
-                schema, self.config_entry.options
-            ),
+            data_schema=self.add_suggested_values_to_schema(schema, suggested),
+            errors=errors,
         )

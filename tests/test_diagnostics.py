@@ -30,6 +30,12 @@ async def test_diagnostics_redacted(
     assert diagnostics["system_status"]["version"] == "3.1.2.4913"
     assert len(diagnostics["albums"]) == 3
     assert diagnostics["albums"][0]["lidarr_url"] == "**REDACTED**"
+    # Which cached image each item uses, without a signed URL.
+    assert diagnostics["albums"][0]["cover_url"] == "album/1/cover-500.jpg"
+    assert diagnostics["artists"][1]["image_url"] == "artist/4/poster-500.jpg"
+    assert diagnostics["artists"][4]["image_url"] is None
+    assert diagnostics["coordinator"]["separate_link_url"] is False
+    assert "authSig" not in json.dumps(diagnostics)
 
     dumped = json.dumps(diagnostics)
     assert API_KEY not in dumped

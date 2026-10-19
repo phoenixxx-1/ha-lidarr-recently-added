@@ -73,6 +73,22 @@ Open the integration and choose **Configure**:
 | Recently added albums sensor | On | Turning it off removes the sensor and stops its API calls and events. |
 | Recently added artists sensor | On | As above, for artists. |
 
+### Advanced configuration
+
+Most people won't need this. Under **Configure → Advanced** there is one
+optional field:
+
+| Option | Description |
+|---|---|
+| Lidarr web address for links | The address used for the `lidarr_url` links in sensors and events. Leave it empty to use the connection URL. |
+
+You only need it if Home Assistant connects to Lidarr on a different address
+from the one you open in your browser, for example an internal IP address
+when your browser uses a reverse-proxy name that Home Assistant can't
+resolve. Home Assistant never connects to this address; it is only checked
+to be a valid URL. The usual fix is to give Home Assistant the same address
+you use in your browser, and leave this empty.
+
 ## Sensors
 
 Each Lidarr instance gets one device with four sensors. Entity IDs follow the
@@ -106,7 +122,7 @@ the timestamp.
 | `album` | `In Rainbows` | |
 | `release_date` | `2007-10-10` | |
 | `added` | `2026-10-18T20:00:03+00:00` | Latest import time for the album. |
-| `cover_url` | `https://coverartarchive.org/…` | Public URL, or `null` if Lidarr has none. |
+| `cover_url` | `/api/lidarr_recently_added/image/…` | Album cover served by Home Assistant (see [Images](#images)), or `null`. |
 | `album_type` | `Album` | `Album`, `EP`, `Single`, … |
 | `track_count` | `10` | Tracks on the selected release. |
 | `musicbrainz_id` | `…` | MusicBrainz release group ID. |
@@ -121,7 +137,7 @@ the timestamp.
 |---|---|---|
 | `artist` | `Radiohead` | |
 | `added` | `2026-10-18T12:00:00+00:00` | |
-| `image_url` | `https://assets.fanart.tv/…` | Public URL, or `null`. |
+| `image_url` | `/api/lidarr_recently_added/image/…` | Artist image served by Home Assistant, or `null` if Lidarr has none. |
 | `album_count` | `9` | From Lidarr's artist statistics. |
 | `musicbrainz_id` | `…` | MusicBrainz artist ID. |
 | `lidarr_url` | `http://…/artist/<id>` | Opens the artist in Lidarr. |
@@ -145,14 +161,32 @@ database.
   rather than downloaded has no import event and won't appear.
 - **Artists** come from your library, sorted by the date they were added.
 
-### Images and privacy
+### Images
 
-Your API key is never placed in an attribute, event or URL. Lidarr's own
-`/MediaCover` images need a login, so this integration only uses the public
-image addresses Lidarr stores (Cover Art Archive, fanart.tv and similar). Your
-browser loads those images directly from those sites, including the sensor
-pictures shown in place of icons. Items without a public image have an empty
-image field, and their sensors show the normal icon.
+Artwork comes from Lidarr's own image cache, through Home Assistant:
+
+- `cover_url`, `image_url` and the sensor pictures point at Home Assistant
+  (`/api/lidarr_recently_added/image/…`), not at Lidarr or a third-party site.
+- Home Assistant fetches the image from Lidarr using the API key, and passes
+  the picture on. Your API key never leaves Home Assistant.
+- The links are signed, so a dashboard, notification or `<img>` tag can load
+  them without logging in. A link only works for that one image and expires
+  after a week; the sensors renew them automatically. Restarting Home
+  Assistant also renews them.
+- Because every image comes from Home Assistant itself, they load over HTTPS
+  when your dashboard does, and work without internet access.
+- Artists use their poster, then fanart, then banner. Logos are skipped,
+  because a transparent wordmark looks wrong in a round avatar. Albums use
+  their cover, then the disc image.
+- An item only has no image when Lidarr has none at all.
+
+Why not use the image addresses in Lidarr's API directly? Since Lidarr
+2.14.1, when an artist's metadata has no images Lidarr rebuilds the list from
+its local cache. Those entries carry a file path inside Lidarr as their
+"remote" URL (for example `/config/MediaCover/230/poster.jpg`), which a
+browser can't load. That can be most of the artists in a library. Lidarr's own
+web interface always loads images from its cache, and so does this
+integration.
 
 ## Events
 
@@ -176,7 +210,7 @@ Example `lidarr_recently_added_album` payload:
   "album": "In Rainbows",
   "release_date": "2007-10-10",
   "added": "2026-10-18T20:00:03+00:00",
-  "cover_url": "https://coverartarchive.org/release/…/front.jpg",
+  "cover_url": "/api/lidarr_recently_added/image/…/album/1234/cover-500.jpg?v=…&authSig=…",
   "album_type": "Album",
   "track_count": 10,
   "musicbrainz_id": "…",
@@ -257,8 +291,9 @@ actions:
 mode: queued
 ```
 
-`image` and `url` are understood by the Home Assistant Companion apps. Other
-notify services ignore them.
+`image` and `url` are understood by the Home Assistant Companion apps, which
+load relative image paths from your Home Assistant. Other notify services
+ignore them.
 
 ## Troubleshooting
 
@@ -266,8 +301,9 @@ notify services ignore them.
   machine running Home Assistant, including the base path if you use one.
 - **"Not Lidarr":** the address points at another application (for example
   Readarr or Prowlarr). Check the port.
-- **No cover art:** Lidarr only has a public image for some releases. Items
-  without one show an empty `cover_url`.
+- **No cover art:** the item has no image in Lidarr either. Check the artist
+  or album in Lidarr; refreshing the artist there usually fetches artwork.
+  Diagnostics list which cached image each item uses.
 - **Diagnostics:** on the integration's page, open the menu (⋮) and choose
   **Download diagnostics**. The API key and addresses are redacted.
 

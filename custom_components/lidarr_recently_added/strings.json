@@ -53,8 +53,23 @@
           "scan_interval": "How often to ask Lidarr for new items, in minutes.",
           "albums_enabled": "Turning a sensor off also stops its API calls and events.",
           "artists_enabled": "Turning a sensor off also stops its API calls and events."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced",
+            "description": "Most people don't need this.",
+            "data": {
+              "link_url": "Lidarr web address for links"
+            },
+            "data_description": {
+              "link_url": "Only needed if Home Assistant connects to Lidarr on a different address from the one you open in your browser, for example an internal IP address instead of a reverse-proxy name. Used for the links in the sensors and events. Leave empty to use the connection URL."
+            }
+          }
         }
       }
+    },
+    "error": {
+      "invalid_link_url": "Enter a full web address for links, starting with http:// or https://."
     }
   },
   "entity": {

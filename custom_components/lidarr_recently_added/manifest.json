@@ -3,11 +3,11 @@
   "name": "Lidarr Recently Added",
   "codeowners": ["@phoenixxx-1"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["http"],
   "documentation": "https://github.com/phoenixxx-1/ha-lidarr-recently-added",
   "integration_type": "service",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/phoenixxx-1/ha-lidarr-recently-added/issues",
   "requirements": [],
-  "version": "0.2.0"
+  "version": "0.2.1"
 }

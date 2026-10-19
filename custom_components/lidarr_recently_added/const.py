@@ -47,3 +47,18 @@ HISTORY_PAGE_SIZE: Final = 250
 HISTORY_MAX_PAGES: Final = 8
 
 REQUEST_TIMEOUT: Final = 60
+
+CONF_LINK_URL: Final = "link_url"
+CONF_ADVANCED: Final = "advanced"
+
+# Artwork is served through Home Assistant, so the API key stays on the server.
+IMAGE_VIEW_URL: Final = "/api/lidarr_recently_added/image"
+MAX_IMAGE_BYTES: Final = 15 * 1024 * 1024
+# Signed image URLs are valid for a week and re-signed after three days, so
+# attributes stay stable between refreshes and browsers can cache images.
+IMAGE_URL_LIFETIME_DAYS: Final = 7
+IMAGE_URL_RESIGN_DAYS: Final = 3
+
+# Bundled Lovelace card.
+CARD_FILENAME: Final = "lidarr-recently-added-card.js"
+CARD_URL_BASE: Final = "/lidarr_recently_added"

@@ -19,6 +19,7 @@ from homeassistant.core import HomeAssistant
 from .conftest import (
     API_KEY,
     artist_entry,
+    assert_signed_image,
     default_artists,
     default_history,
     history_record,
@@ -82,13 +83,21 @@ async def test_events_for_new_items(
         "album": "Album 9",
         "release_date": "2024-05-17",
         "added": "2026-10-19T09:00:01+00:00",
-        "cover_url": "https://coverartarchive.org/release/9/front.jpg",
+        "cover_url": album_events[1].data["cover_url"],
         "album_type": "Album",
         "track_count": 19,
         "musicbrainz_id": "mb-album-9",
         "lidarr_url": "http://lidarr.local:8686/album/mb-album-9",
         "config_entry_id": setup_integration.entry_id,
     }
+    assert_signed_image(
+        album_events[1].data["cover_url"],
+        setup_integration.entry_id,
+        "album",
+        9,
+        "cover-500.jpg",
+        "42",
+    )
     assert [event.data["artist"] for event in artist_events] == ["Artist 42"]
     assert API_KEY not in str([e.data for e in album_events + artist_events])
 

@@ -59,7 +59,7 @@ def history_record(
             "albumType": "Album",
             "images": [
                 {
-                    "url": f"/MediaCover/Albums/{album_id}/cover.jpg?lastWrite=1",
+                    "url": f"https://coverartarchive.org/release/{album_id}/front.jpg",
                     "coverType": "cover",
                     "extension": ".jpg",
                     "remoteUrl": f"https://coverartarchive.org/release/{album_id}/front.jpg",
@@ -75,6 +75,7 @@ def history_record(
 
 
 def album_details(album_id: int, total_tracks: int = 12) -> dict[str, Any]:
+    # The album endpoint maps covers to Lidarr's cache; history doesn't.
     """Build an /api/v1/album entry with statistics."""
     return {
         "id": album_id,
@@ -84,7 +85,7 @@ def album_details(album_id: int, total_tracks: int = 12) -> dict[str, Any]:
         "albumType": "Album",
         "images": [
             {
-                "url": f"/MediaCover/Albums/{album_id}/cover.jpg?lastWrite=1",
+                "url": f"/MediaCover/Albums/{album_id}/cover.jpg?lastWrite=42",
                 "coverType": "cover",
                 "extension": ".jpg",
                 "remoteUrl": f"https://coverartarchive.org/release/{album_id}/front.jpg",
@@ -100,8 +101,36 @@ def album_details(album_id: int, total_tracks: int = 12) -> dict[str, Any]:
     }
 
 
+def artist_images(artist_id: int, shape: str) -> list[dict[str, Any]]:
+    """Image lists in the shapes Lidarr returns.
+
+    ``remote``: public https URLs. ``local``: rebuilt from Lidarr's cover
+    cache, with a path inside Lidarr's container as ``remoteUrl`` (seen on
+    Lidarr 2.14.1 and later). ``none``: no images at all.
+    """
+    if shape == "none":
+        return []
+    images = []
+    for cover_type in ("poster", "fanart", "banner", "clearlogo"):
+        extension = ".png" if cover_type == "clearlogo" else ".jpg"
+        remote = (
+            f"https://images.lidarr.audio/{artist_id}/{cover_type}{extension}"
+            if shape == "remote"
+            else f"/config/MediaCover/{artist_id}/{cover_type}{extension}"
+        )
+        images.append(
+            {
+                "url": f"/MediaCover/{artist_id}/{cover_type}{extension}?lastWrite=63",
+                "coverType": cover_type,
+                "extension": extension,
+                "remoteUrl": remote,
+            }
+        )
+    return images
+
+
 def artist_entry(
-    artist_id: int, added: str, *, name: str | None = None, images: bool = True
+    artist_id: int, added: str, *, name: str | None = None, images: str = "remote"
 ) -> dict[str, Any]:
     """Build an /api/v1/artist entry."""
     return {
@@ -110,30 +139,7 @@ def artist_entry(
         "foreignArtistId": f"mb-artist-{artist_id}",
         "added": added,
         "overview": "x" * 500,
-        "images": (
-            [
-                {
-                    "url": f"/MediaCover/{artist_id}/poster.jpg?lastWrite=1",
-                    "coverType": "poster",
-                    "extension": ".jpg",
-                    "remoteUrl": f"https://assets.fanart.tv/fanart/{artist_id}.jpg",
-                },
-                {
-                    "url": f"/MediaCover/{artist_id}/banner.jpg?lastWrite=1",
-                    "coverType": "banner",
-                    "extension": ".jpg",
-                    "remoteUrl": f"https://assets.fanart.tv/banner/{artist_id}.jpg",
-                },
-            ]
-            if images
-            else [
-                {
-                    "url": f"/MediaCover/{artist_id}/poster.jpg?lastWrite=1",
-                    "coverType": "poster",
-                    "extension": ".jpg",
-                }
-            ]
-        ),
+        "images": artist_images(artist_id, images),
         "statistics": {"albumCount": artist_id % 7 + 1, "trackFileCount": 10},
     }
 
@@ -160,8 +166,9 @@ def default_artists() -> list[dict[str, Any]]:
         artist_entry(1, "2025-01-01T00:00:00Z"),
         artist_entry(2, "2026-10-18T12:00:00Z", name="Newest"),
         artist_entry(3, "2026-03-01T00:00:00Z"),
-        artist_entry(4, "2026-10-10T00:00:00Z", images=False),
+        artist_entry(4, "2026-10-10T00:00:00Z", images="local"),
         {"id": 5, "artistName": "No date"},
+        artist_entry(6, "2024-01-01T00:00:00Z", images="none"),
     ]
 
 
@@ -230,3 +237,26 @@ async def setup_integration(
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
     return mock_config_entry
+
+
+def image_path(entry_id: str, kind: str, item_id: int, filename: str) -> str:
+    """Return the unsigned image view path for an image."""
+    return f"/api/lidarr_recently_added/image/{entry_id}/{kind}/{item_id}/{filename}"
+
+
+def assert_signed_image(
+    url: str | None,
+    entry_id: str,
+    kind: str,
+    item_id: int,
+    filename: str,
+    version: str | None,
+) -> None:
+    """Assert a URL is a signed path to this integration's image view."""
+    assert url is not None
+    path, _, query = url.partition("?")
+    assert path == image_path(entry_id, kind, item_id, filename)
+    params = dict(part.split("=", 1) for part in query.split("&"))
+    assert "authSig" in params
+    assert params.get("v") == version
+    assert "lidarr" not in url.split("/api/", 1)[0]

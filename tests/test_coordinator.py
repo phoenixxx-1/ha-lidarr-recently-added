@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 from unittest.mock import patch
 
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -12,9 +13,12 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 
 from custom_components.lidarr_recently_added.const import CONF_MAX_ITEMS
 from custom_components.lidarr_recently_added.coordinator import (
+    ARTIST_IMAGE_TYPES,
+    ImageRef,
     build_album_items,
     build_artist_items,
     group_history_by_album,
+    pick_image,
 )
 from homeassistant.core import HomeAssistant
 
@@ -22,6 +26,7 @@ from .conftest import (
     URL,
     album_details,
     artist_entry,
+    artist_images,
     default_artists,
     default_history,
     history_record,
@@ -71,17 +76,24 @@ def test_group_history_across_pages() -> None:
     assert seen[1]["id"] == 3
 
 
+def describe(image: ImageRef | None) -> str | None:
+    """Stand-in for the coordinator's URL signer in unit tests."""
+    if image is None:
+        return None
+    return f"{image.kind}/{image.item_id}/{image.filename}@{image.version}"
+
+
 def test_build_album_items_fields() -> None:
-    """Album details are merged in and only public URLs are used."""
+    """Album details are merged in and the cached cover is used."""
     record = history_record(1, 7, "2026-10-18T20:00:00Z", artist="Alpha")
     items = build_album_items([record], {7: album_details(7, total_tracks=14)}, URL)
 
-    assert items[0].as_dict() == {
+    assert items[0].as_dict(describe) == {
         "artist": "Alpha",
         "album": "Album 7",
         "release_date": "2024-05-17",
         "added": "2026-10-18T20:00:00+00:00",
-        "cover_url": "https://coverartarchive.org/release/7/front.jpg",
+        "cover_url": "album/7/cover-500.jpg@42",
         "album_type": "Album",
         "track_count": 14,
         "musicbrainz_id": "mb-album-7",
@@ -89,18 +101,23 @@ def test_build_album_items_fields() -> None:
     }
 
 
-def test_build_album_items_without_details_or_remote_url() -> None:
-    """Missing details fall back to the embedded album; no remote URL means None."""
+def test_build_album_items_without_details() -> None:
+    """Missing details fall back to the embedded album and its cover."""
     record = history_record(1, 7, "2026-10-18T20:00:00Z")
-    record["album"]["images"] = [
-        {"url": "/MediaCover/Albums/7/cover.jpg", "coverType": "cover"},
-        {"coverType": "disc", "remoteUrl": "/config/MediaCover/local.jpg"},
-    ]
     item = build_album_items([record], {}, URL)[0]
 
     assert item.album == "Album 7"
     assert item.track_count is None
-    assert item.cover_url is None
+    # History isn't mapped to Lidarr's cache, so there is no lastWrite.
+    assert item.cover == ImageRef("album", 7, "cover-500.jpg", None)
+
+
+def test_build_album_items_without_images() -> None:
+    """An album with no images at all has no cover."""
+    record = history_record(1, 7, "2026-10-18T20:00:00Z")
+    record["album"]["images"] = []
+    item = build_album_items([record], {7: {**album_details(7), "images": []}}, URL)[0]
+    assert item.cover is None
 
 
 def test_build_artist_items_sorted_and_limited() -> None:
@@ -108,16 +125,98 @@ def test_build_artist_items_sorted_and_limited() -> None:
     items = build_artist_items(default_artists(), 3, URL)
 
     assert [item.artist_id for item in items] == [2, 4, 3]
-    assert items[0].as_dict() == {
+    assert items[0].as_dict(describe) == {
         "artist": "Newest",
         "added": "2026-10-18T12:00:00+00:00",
-        "image_url": "https://assets.fanart.tv/fanart/2.jpg",
+        "image_url": "artist/2/poster-500.jpg@63",
         "album_count": 3,
         "musicbrainz_id": "mb-artist-2",
         "lidarr_url": f"{URL}/artist/mb-artist-2",
     }
-    # Artist 4 only has a local MediaCover path, so there is no image.
-    assert items[1].image_url is None
+
+
+def test_link_base_url() -> None:
+    """Links use the separate link address when one is given."""
+    link = "https://lidarr.example.com"
+    album = build_album_items([history_record(1, 7, "2026-10-18T20:00:00Z")], {}, link)[
+        0
+    ]
+    artist = build_artist_items(default_artists(), 1, link)[0]
+    assert album.lidarr_url == f"{link}/album/mb-album-7"
+    assert artist.lidarr_url == f"{link}/artist/mb-artist-2"
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected"),
+    [
+        # Public https URLs (images.lidarr.audio, TheAudioDB).
+        ("remote", ImageRef("artist", 9, "poster-500.jpg", "63")),
+        # remoteUrl is a file path inside Lidarr: still a cached image.
+        ("local", ImageRef("artist", 9, "poster-500.jpg", "63")),
+        # Nothing at all: the card shows initials.
+        ("none", None),
+    ],
+)
+def test_pick_image_shapes(shape: str, expected: ImageRef | None) -> None:
+    """Every image Lidarr lists is usable, whatever remoteUrl holds."""
+    images = artist_images(9, shape)
+    assert pick_image("artist", 9, images, ARTIST_IMAGE_TYPES) == expected
+
+
+@pytest.mark.parametrize(
+    ("types", "expected"),
+    [
+        (("poster", "fanart", "banner", "clearlogo"), "poster-500.jpg"),
+        (("fanart", "banner", "clearlogo"), "fanart-360.jpg"),
+        (("banner", "clearlogo"), "banner.jpg"),
+        # A transparent wordmark looks wrong in a circle: no image instead.
+        (("clearlogo",), None),
+    ],
+)
+def test_pick_image_artist_fallback_order(
+    types: tuple[str, ...], expected: str | None
+) -> None:
+    """Artists fall back poster, fanart, banner, and never use clearlogo."""
+    images = [i for i in artist_images(9, "local") if i["coverType"] in types]
+    image = pick_image("artist", 9, images, ARTIST_IMAGE_TYPES)
+    assert (image.filename if image else None) == expected
+
+
+@pytest.mark.parametrize(
+    ("image", "filename", "version"),
+    [
+        # Mapped to the cache: extension and lastWrite come from the URL.
+        (
+            {
+                "coverType": "Poster",
+                "url": "/lidarr/MediaCover/9/poster.png?lastWrite=7",
+            },
+            "poster-500.png",
+            "7",
+        ),
+        # Unmapped: the extension field, then the remote URL.
+        ({"coverType": "poster", "extension": ".gif"}, "poster-500.gif", None),
+        (
+            {"coverType": "poster", "remoteUrl": "https://x.test/a/b.png?size=1"},
+            "poster-500.png",
+            None,
+        ),
+        # Extensions Lidarr's route can't serve fall back to .jpg.
+        ({"coverType": "poster", "extension": ".jpeg"}, "poster-500.jpg", None),
+        ({"coverType": "poster"}, "poster-500.jpg", None),
+    ],
+)
+def test_pick_image_filename(image: dict, filename: str, version: str | None) -> None:
+    """The filename matches what Lidarr's cover route serves."""
+    assert pick_image("artist", 9, [image], ARTIST_IMAGE_TYPES) == ImageRef(
+        "artist", 9, filename, version
+    )
+
+
+def test_pick_image_ignores_junk() -> None:
+    """Malformed image lists don't break anything."""
+    assert pick_image("artist", 9, None, ARTIST_IMAGE_TYPES) is None
+    assert pick_image("artist", 9, ["x", {"coverType": 3}], ARTIST_IMAGE_TYPES) is None
 
 
 def test_build_artist_items_large_library() -> None:

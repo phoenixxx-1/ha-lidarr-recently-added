@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import Any
 
 import aiohttp
 from yarl import URL
 
-from .const import REQUEST_TIMEOUT
+from .const import MAX_IMAGE_BYTES, REQUEST_TIMEOUT
 
 
 class LidarrError(Exception):
@@ -21,6 +21,10 @@ class LidarrConnectionError(LidarrError):
 
 class LidarrAuthenticationError(LidarrError):
     """Lidarr rejected the API key."""
+
+
+class LidarrNotFoundError(LidarrError):
+    """Lidarr has no such resource, for example a cover it never cached."""
 
 
 class InvalidUrlError(ValueError):
@@ -59,16 +63,20 @@ class LidarrClient:
         """Return the normalised base URL, without a trailing slash."""
         return self._base_url
 
-    async def _get(
-        self, path: str, params: Sequence[tuple[str, str | int]] | None = None
-    ) -> Any:
-        """Perform a GET request against /api/v1 and return the decoded JSON."""
+    async def _request[T](
+        self,
+        path: str,
+        params: Sequence[tuple[str, str | int]] | None,
+        accept: str,
+        read: Callable[[aiohttp.ClientResponse], Awaitable[T]],
+    ) -> T:
+        """GET a path under /api/v1 and return what ``read`` makes of the reply."""
         url = f"{self._base_url}/api/v1/{path}"
         try:
             async with self._session.get(
                 url,
                 params=params,
-                headers={"X-Api-Key": self._api_key, "Accept": "application/json"},
+                headers={"X-Api-Key": self._api_key, "Accept": accept},
                 timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
                 # aiohttp keeps custom headers across redirects, so following
                 # one could hand the API key to another host.
@@ -78,17 +86,58 @@ class LidarrClient:
                     raise LidarrAuthenticationError(
                         f"Lidarr rejected the API key (HTTP {response.status})"
                     )
+                if response.status == 404:
+                    raise LidarrNotFoundError(f"Not found: {path}")
                 if not 200 <= response.status < 300:
                     raise LidarrConnectionError(
                         f"Unexpected HTTP {response.status} from {path}"
                     )
-                return await response.json(content_type=None)
+                return await read(response)
         except (aiohttp.ClientError, TimeoutError) as err:
             raise LidarrConnectionError(
                 f"Error communicating with Lidarr: {err.__class__.__name__}"
             ) from err
-        except ValueError as err:
-            raise LidarrConnectionError(f"Invalid JSON from {path}") from err
+
+    async def _get(
+        self, path: str, params: Sequence[tuple[str, str | int]] | None = None
+    ) -> Any:
+        """GET a path under /api/v1 and return the decoded JSON."""
+
+        async def read_json(response: aiohttp.ClientResponse) -> Any:
+            try:
+                return await response.json(content_type=None)
+            except ValueError as err:
+                raise LidarrConnectionError(f"Invalid JSON from {path}") from err
+
+        return await self._request(path, params, "application/json", read_json)
+
+    async def async_get_media_cover(
+        self, kind: str, item_id: int, filename: str
+    ) -> tuple[bytes, str]:
+        """Return the bytes and content type of a cached artist or album image.
+
+        Uses the API-key route, /api/v1/mediacover/{kind}/{id}/{filename}.
+        Lidarr serves the full-size file when a resized one doesn't exist.
+        """
+        path = f"mediacover/{kind}/{item_id}/{filename}"
+
+        async def read_image(response: aiohttp.ClientResponse) -> tuple[bytes, str]:
+            content_type = (response.headers.get("Content-Type") or "").split(";")[0]
+            if not content_type.startswith("image/"):
+                raise LidarrConnectionError(f"Not an image: {path}")
+            length = response.headers.get("Content-Length")
+            if length and length.isdecimal() and int(length) > MAX_IMAGE_BYTES:
+                raise LidarrConnectionError(f"Image too large: {path}")
+            chunks: list[bytes] = []
+            size = 0
+            async for chunk in response.content.iter_chunked(64 * 1024):
+                size += len(chunk)
+                if size > MAX_IMAGE_BYTES:
+                    raise LidarrConnectionError(f"Image too large: {path}")
+                chunks.append(chunk)
+            return b"".join(chunks), content_type
+
+        return await self._request(path, None, "image/*", read_image)
 
     async def async_get_system_status(self) -> dict[str, Any]:
         """Return /system/status."""
