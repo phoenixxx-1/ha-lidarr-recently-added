@@ -15,6 +15,8 @@ from custom_components.lidarr_recently_added.const import (
     CONF_ALBUMS_ENABLED,
     CONF_ARTISTS_ENABLED,
     CONF_LINK_URL,
+    CONF_MAX_ALBUMS,
+    CONF_MAX_ARTISTS,
     CONF_MAX_ITEMS,
     CONF_SCAN_INTERVAL,
     DOMAIN,
@@ -227,7 +229,8 @@ async def test_options_flow(
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
-            CONF_MAX_ITEMS: 2.0,
+            CONF_MAX_ALBUMS: 5.0,
+            CONF_MAX_ARTISTS: 2.0,
             CONF_SCAN_INTERVAL: 60.0,
             CONF_ALBUMS_ENABLED: False,
             CONF_ARTISTS_ENABLED: True,
@@ -238,13 +241,15 @@ async def test_options_flow(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options == {
-        CONF_MAX_ITEMS: 2,
+        CONF_MAX_ALBUMS: 5,
+        CONF_MAX_ARTISTS: 2,
         CONF_SCAN_INTERVAL: 60,
         CONF_ALBUMS_ENABLED: False,
         CONF_ARTISTS_ENABLED: True,
     }
     coordinator = entry.runtime_data.coordinator
-    assert coordinator.max_items == 2
+    assert coordinator.max_albums == 5
+    assert coordinator.max_artists == 2
     assert coordinator.update_interval.total_seconds() == 3600
     assert coordinator.data.albums is None
 
@@ -269,7 +274,8 @@ async def test_options_flow_link_url(
     """A separate link address is validated, normalised and used for links."""
     entry = setup_integration
     base = {
-        CONF_MAX_ITEMS: 10,
+        CONF_MAX_ALBUMS: 10,
+        CONF_MAX_ARTISTS: 10,
         CONF_SCAN_INTERVAL: 30,
         CONF_ALBUMS_ENABLED: True,
         CONF_ARTISTS_ENABLED: True,
@@ -306,3 +312,46 @@ async def test_options_flow_link_url(
     assert CONF_LINK_URL not in entry.options
     items = hass.states.get("sensor.lidarr_recently_added_albums").attributes["items"]
     assert items[0]["lidarr_url"] == f"{URL}/album/mb-album-1"
+
+
+async def test_options_flow_reads_old_item_count(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Options saved before 0.3.0 had one count; it fills in both new ones."""
+    mock_lidarr(aioclient_mock)
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_MAX_ITEMS: 7}
+    )
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = mock_config_entry.runtime_data.coordinator
+    assert (coordinator.max_albums, coordinator.max_artists) == (7, 7)
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    schema = result["data_schema"].schema
+    suggested = {
+        str(key): key.description["suggested_value"]
+        for key in schema
+        if getattr(key, "description", None)
+    }
+    assert suggested[CONF_MAX_ALBUMS] == 7
+    assert suggested[CONF_MAX_ARTISTS] == 7
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_MAX_ALBUMS: 30,
+            CONF_MAX_ARTISTS: 4,
+            CONF_SCAN_INTERVAL: 30,
+            CONF_ALBUMS_ENABLED: True,
+            CONF_ARTISTS_ENABLED: True,
+            "advanced": {},
+        },
+    )
+    await hass.async_block_till_done()
+    assert CONF_MAX_ITEMS not in mock_config_entry.options
+    coordinator = mock_config_entry.runtime_data.coordinator
+    assert (coordinator.max_albums, coordinator.max_artists) == (30, 4)

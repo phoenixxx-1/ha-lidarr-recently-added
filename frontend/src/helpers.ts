@@ -32,7 +32,12 @@ export interface CardConfig {
   albums_entity?: string;
   artists_entity?: string;
   layout?: "strip" | "wall";
+  max_albums?: number;
+  max_artists?: number;
+  /** Before 0.3.0: one limit for both. Still used when the new ones aren't set. */
   max_items?: number;
+  album_rows?: number;
+  artist_rows?: number;
   show_artists?: boolean;
   show_added?: boolean;
   player?: string;

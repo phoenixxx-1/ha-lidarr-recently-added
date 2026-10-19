@@ -23,6 +23,8 @@ from .const import (
     CONF_ALBUMS_ENABLED,
     CONF_ARTISTS_ENABLED,
     CONF_LINK_URL,
+    CONF_MAX_ALBUMS,
+    CONF_MAX_ARTISTS,
     CONF_MAX_ITEMS,
     CONF_SCAN_INTERVAL,
     DEFAULT_MAX_ITEMS,
@@ -368,7 +370,9 @@ class LidarrRecentlyAddedCoordinator(DataUpdateCoordinator[RecentlyAddedData]):
             ),
         )
         self.client = client
-        self.max_items: int = options.get(CONF_MAX_ITEMS, DEFAULT_MAX_ITEMS)
+        legacy_max: int = options.get(CONF_MAX_ITEMS, DEFAULT_MAX_ITEMS)
+        self.max_albums: int = options.get(CONF_MAX_ALBUMS, legacy_max)
+        self.max_artists: int = options.get(CONF_MAX_ARTISTS, legacy_max)
         self.albums_enabled: bool = options.get(CONF_ALBUMS_ENABLED, True)
         self.artists_enabled: bool = options.get(CONF_ARTISTS_ENABLED, True)
         # Links point at the address people browse to, which can differ from
@@ -397,7 +401,7 @@ class LidarrRecentlyAddedCoordinator(DataUpdateCoordinator[RecentlyAddedData]):
         return RecentlyAddedData(albums=albums, artists=artists)
 
     async def _async_fetch_albums(self) -> list[AlbumItem]:
-        """Fetch enough history pages to fill ``max_items`` distinct albums."""
+        """Fetch enough history pages to fill ``max_albums`` distinct albums."""
         seen: dict[int, Mapping[str, Any]] = {}
         for page in range(1, HISTORY_MAX_PAGES + 1):
             data = await self.client.async_get_history_page(
@@ -409,14 +413,14 @@ class LidarrRecentlyAddedCoordinator(DataUpdateCoordinator[RecentlyAddedData]):
             group_history_by_album(records, seen)
             total = data.get("totalRecords")
             if (
-                len(seen) >= self.max_items
+                len(seen) >= self.max_albums
                 or not records
                 or not isinstance(total, int)
                 or page * HISTORY_PAGE_SIZE >= total
             ):
                 break
 
-        newest = list(seen.values())[: self.max_items]
+        newest = list(seen.values())[: self.max_albums]
         details = await self.client.async_get_albums(
             record["albumId"] for record in newest
         )
@@ -428,9 +432,9 @@ class LidarrRecentlyAddedCoordinator(DataUpdateCoordinator[RecentlyAddedData]):
         return build_album_items(newest, albums_by_id, self.link_base_url)
 
     async def _async_fetch_artists(self) -> list[ArtistItem]:
-        """Fetch the library and keep only the newest ``max_items`` artists."""
+        """Fetch the library and keep only the newest ``max_artists`` artists."""
         artists = await self.client.async_get_artists()
-        return build_artist_items(artists, self.max_items, self.link_base_url)
+        return build_artist_items(artists, self.max_artists, self.link_base_url)
 
     def _queue_new_item_events(
         self, albums: list[AlbumItem] | None, artists: list[ArtistItem] | None

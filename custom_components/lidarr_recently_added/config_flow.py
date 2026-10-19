@@ -38,6 +38,8 @@ from .const import (
     CONF_ALBUMS_ENABLED,
     CONF_ARTISTS_ENABLED,
     CONF_LINK_URL,
+    CONF_MAX_ALBUMS,
+    CONF_MAX_ARTISTS,
     CONF_MAX_ITEMS,
     CONF_SCAN_INTERVAL,
     DEFAULT_MAX_ITEMS,
@@ -200,7 +202,8 @@ class LidarrRecentlyAddedOptionsFlow(OptionsFlowWithReload):
             advanced = user_input.pop(CONF_ADVANCED, {})
             options: dict[str, Any] = {
                 **user_input,
-                CONF_MAX_ITEMS: int(user_input[CONF_MAX_ITEMS]),
+                CONF_MAX_ALBUMS: int(user_input[CONF_MAX_ALBUMS]),
+                CONF_MAX_ARTISTS: int(user_input[CONF_MAX_ARTISTS]),
                 CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
             }
             if link_url := (advanced.get(CONF_LINK_URL) or "").strip():
@@ -213,16 +216,17 @@ class LidarrRecentlyAddedOptionsFlow(OptionsFlowWithReload):
             if not errors:
                 return self.async_create_entry(data=options)
 
+        count_selector = NumberSelectorConfig(
+            min=MIN_MAX_ITEMS, max=MAX_MAX_ITEMS, step=1, mode=NumberSelectorMode.BOX
+        )
         schema = vol.Schema(
             {
-                vol.Required(CONF_MAX_ITEMS, default=DEFAULT_MAX_ITEMS): NumberSelector(
-                    NumberSelectorConfig(
-                        min=MIN_MAX_ITEMS,
-                        max=MAX_MAX_ITEMS,
-                        step=1,
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
+                vol.Required(
+                    CONF_MAX_ALBUMS, default=DEFAULT_MAX_ITEMS
+                ): NumberSelector(count_selector),
+                vol.Required(
+                    CONF_MAX_ARTISTS, default=DEFAULT_MAX_ITEMS
+                ): NumberSelector(count_selector),
                 vol.Required(
                     CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL
                 ): NumberSelector(
@@ -249,6 +253,11 @@ class LidarrRecentlyAddedOptionsFlow(OptionsFlowWithReload):
             }
         )
         current = user_input or dict(self.config_entry.options)
+        # Options saved before 0.3.0 had one count for both lists.
+        if CONF_MAX_ITEMS in current:
+            legacy = current.pop(CONF_MAX_ITEMS)
+            current.setdefault(CONF_MAX_ALBUMS, legacy)
+            current.setdefault(CONF_MAX_ARTISTS, legacy)
         suggested = {
             **current,
             CONF_ADVANCED: {

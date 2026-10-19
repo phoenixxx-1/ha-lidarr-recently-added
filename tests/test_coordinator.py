@@ -11,7 +11,11 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
-from custom_components.lidarr_recently_added.const import CONF_MAX_ITEMS
+from custom_components.lidarr_recently_added.const import (
+    CONF_MAX_ALBUMS,
+    CONF_MAX_ARTISTS,
+    CONF_MAX_ITEMS,
+)
 from custom_components.lidarr_recently_added.coordinator import (
     ARTIST_IMAGE_TYPES,
     ImageRef,
@@ -275,3 +279,22 @@ async def test_fetches_more_pages_until_full(
 
     album_call = next(c for c in aioclient_mock.mock_calls if "/album?" in str(c[1]))
     assert str(album_call[1]).count("albumIds=") == 3
+
+
+async def test_separate_album_and_artist_counts(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Albums and artists are limited separately."""
+    mock_lidarr(aioclient_mock)
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_MAX_ALBUMS: 1, CONF_MAX_ARTISTS: 3}
+    )
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    data = mock_config_entry.runtime_data.coordinator.data
+    assert [item.album_id for item in data.albums] == [1]
+    assert [item.artist_id for item in data.artists] == [2, 4, 3]

@@ -19,6 +19,12 @@ which were never released on their own.
   radio. Hold for Play now, Play next, Add to queue, Choose player… and,
   optionally, Open in Lidarr. Messages confirm what played, or say why it
   couldn't.
+- Strip layout rows: `album_rows` and `artist_rows` show several rows that
+  scroll sideways, so every screen size gets a full section.
+- Separate limits for albums and artists, in the integration's options
+  (Number of albums, Number of artists, now up to 50 each) and in the card
+  (`max_albums`, `max_artists`). The old single setting still works and
+  fills in both.
 - The player can be fixed, read from a helper, or chosen each time. In the
   player list, a sync group leader is shown with its members ("Sonos Move +
   Move 2"), and players with the same name show their entity IDs.

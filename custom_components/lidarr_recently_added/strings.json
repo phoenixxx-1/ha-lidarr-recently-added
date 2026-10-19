@@ -43,13 +43,15 @@
       "init": {
         "title": "Lidarr Recently Added options",
         "data": {
-          "max_items": "Number of items",
+          "max_albums": "Number of albums",
+          "max_artists": "Number of artists",
           "scan_interval": "Update interval",
           "albums_enabled": "Recently added albums sensor",
           "artists_enabled": "Recently added artists sensor"
         },
         "data_description": {
-          "max_items": "How many albums and artists to keep in each sensor's list (1–25).",
+          "max_albums": "How many albums the albums sensor lists (1–50). Raise it if the card shows several rows.",
+          "max_artists": "How many artists the artists sensor lists (1–50).",
           "scan_interval": "How often to ask Lidarr for new items, in minutes.",
           "albums_enabled": "Turning a sensor off also stops its API calls and events.",
           "artists_enabled": "Turning a sensor off also stops its API calls and events."

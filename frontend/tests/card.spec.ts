@@ -370,3 +370,70 @@ test.describe("player names", () => {
     await expect(menu(page).getByRole("menuitemradio")).toHaveText([/^\s*Sonos Move\s*Idle\s*$/]);
   });
 });
+
+test.describe("sizes and rows", () => {
+  const boxes = (locator: Locator) =>
+    locator.evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: Math.round(r.x), y: Math.round(r.y) };
+      }),
+    );
+
+  test("albums and artists have separate limits", async ({ page }) => {
+    await mount(page, { config: { max_albums: 1, max_artists: 2 } });
+    await expect(albums(page)).toHaveCount(1);
+    await expect(artists(page)).toHaveCount(2);
+  });
+
+  test("max_items still limits both when the new options aren't set", async ({ page }) => {
+    await mount(page, { config: { max_items: 2, max_artists: 3 } });
+    await expect(albums(page)).toHaveCount(2);
+    await expect(artists(page)).toHaveCount(3);
+  });
+
+  test("two album rows fill each column top to bottom, newest first", async ({ page }) => {
+    await mount(page, { config: { album_rows: 2 } });
+    const [first, second, third] = await boxes(albums(page));
+    // Newest at the top left, the next one below it, then the next column.
+    expect(second.x).toBe(first.x);
+    expect(second.y).toBeGreaterThan(first.y);
+    expect(third.x).toBeGreaterThan(first.x);
+    expect(third.y).toBe(first.y);
+    await expect(card(page).locator(".albums.strip")).toHaveCSS("overflow-x", "auto");
+  });
+
+  test("artist rows work the same way", async ({ page }) => {
+    await mount(page, { config: { artist_rows: 3 } });
+    const [first, second, third] = await boxes(artists(page));
+    expect([second.x, third.x]).toEqual([first.x, first.x]);
+    expect(third.y).toBeGreaterThan(second.y);
+    expect(second.y).toBeGreaterThan(first.y);
+  });
+
+  test("one row by default", async ({ page }) => {
+    await mount(page);
+    const ys = new Set((await boxes(albums(page))).map((b) => b.y));
+    expect(ys.size).toBe(1);
+  });
+
+  test("rows must be a whole number from 1 to 6", async ({ page }) => {
+    await mount(page);
+    const errors = await page.evaluate(() =>
+      [0, 7, 1.5].map((value) => {
+        try {
+          (document.createElement("lidarr-recently-added-card") as any).setConfig({
+            type: "x",
+            albums_entity: "sensor.a",
+            album_rows: value,
+          });
+          return "";
+        } catch (err) {
+          return (err as Error).message;
+        }
+      }),
+    );
+    expect(errors.every((e) => e.includes("album_rows"))).toBe(true);
+  });
+});
+

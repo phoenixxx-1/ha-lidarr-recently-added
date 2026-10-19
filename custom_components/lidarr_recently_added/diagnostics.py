@@ -56,7 +56,8 @@ async def async_get_config_entry_diagnostics(
             "coordinator": {
                 "last_update_success": coordinator.last_update_success,
                 "update_interval": str(coordinator.update_interval),
-                "max_items": coordinator.max_items,
+                "max_albums": coordinator.max_albums,
+                "max_artists": coordinator.max_artists,
                 "separate_link_url": coordinator.link_base_url
                 != coordinator.client.base_url,
             },

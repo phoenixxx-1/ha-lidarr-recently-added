@@ -41,6 +41,7 @@ declare const __CARD_VERSION__: string;
 const CARD_TYPE = "lidarr-recently-added-card";
 const INTEGRATION = "lidarr_recently_added";
 const HOLD_MS = 500;
+const MAX_ROWS = 6;
 const MOVE_TOLERANCE = 10;
 
 type Enqueue = "replace" | "next" | "add";
@@ -62,7 +63,10 @@ const LABELS: Record<string, string> = {
   albums_entity: "Recently added albums sensor",
   artists_entity: "Recently added artists sensor",
   layout: "Layout",
-  max_items: "Maximum items",
+  max_albums: "Maximum albums",
+  max_artists: "Maximum artists",
+  album_rows: "Album rows",
+  artist_rows: "Artist rows",
   show_artists: "Show artists",
   show_added: "Show when added",
   player: "Music Assistant player",
@@ -72,6 +76,10 @@ const LABELS: Record<string, string> = {
 };
 
 const HELPERS: Record<string, string> = {
+  max_albums: "Also limited by the integration's Number of albums option.",
+  max_artists: "Also limited by the integration's Number of artists option.",
+  album_rows: "Strip layout: rows of covers, scrolling sideways.",
+  artist_rows: "Rows of artist avatars, scrolling sideways.",
   player: "Tapping a cover plays it here.",
   player_entity:
     "Optional. An input_select or text helper holding a player's entity ID or name. Takes priority over the fixed player.",
@@ -108,6 +116,12 @@ export class LidarrRecentlyAddedCard extends LitElement {
     if (config.layout && !["strip", "wall"].includes(config.layout)) {
       throw new Error('layout must be "strip" or "wall".');
     }
+    for (const key of ["album_rows", "artist_rows"] as const) {
+      const value = config[key];
+      if (value !== undefined && !(Number.isInteger(value) && value >= 1 && value <= MAX_ROWS)) {
+        throw new Error(`${key} must be a whole number from 1 to ${MAX_ROWS}.`);
+      }
+    }
     this.config = {
       layout: "strip",
       show_artists: true,
@@ -119,8 +133,13 @@ export class LidarrRecentlyAddedCard extends LitElement {
   }
 
   getCardSize(): number {
-    const albumRows = this.config?.layout === "wall" ? 8 : 4;
-    return (this.config?.albums_entity ? albumRows : 0) + (this.showArtists ? 2 : 0) + 1;
+    const config = this.config;
+    const albumRows = config?.layout === "wall" ? 8 : 4 * rows(config?.album_rows);
+    return (
+      (config?.albums_entity ? albumRows : 0) +
+      (this.showArtists ? 2 * rows(config?.artist_rows) : 0) +
+      1
+    );
   }
 
   getGridOptions(): Record<string, unknown> {
@@ -144,13 +163,28 @@ export class LidarrRecentlyAddedCard extends LitElement {
                 select: {
                   mode: "dropdown",
                   options: [
-                    { value: "strip", label: "Strip (one scrolling row)" },
+                    { value: "strip", label: "Strip (rows that scroll sideways)" },
                     { value: "wall", label: "Wall (grid)" },
                   ],
                 },
               },
             },
-            { name: "max_items", selector: { number: { min: 1, max: 25, mode: "box" } } },
+          ],
+        },
+        {
+          type: "grid",
+          name: "",
+          schema: [
+            { name: "max_albums", selector: { number: { min: 1, max: 50, mode: "box" } } },
+            { name: "max_artists", selector: { number: { min: 1, max: 50, mode: "box" } } },
+            {
+              name: "album_rows",
+              selector: { number: { min: 1, max: MAX_ROWS, mode: "box" } },
+            },
+            {
+              name: "artist_rows",
+              selector: { number: { min: 1, max: MAX_ROWS, mode: "box" } },
+            },
           ],
         },
         {
@@ -268,9 +302,15 @@ export class LidarrRecentlyAddedCard extends LitElement {
     }
     const config = this.config;
     const canPlay = musicAssistantAvailable(this.hass);
-    this.albums = items<AlbumItem>(this.hass, config.albums_entity, config.max_items) ?? [];
+    this.albums =
+      items<AlbumItem>(this.hass, config.albums_entity, config.max_albums ?? config.max_items) ??
+      [];
     this.artists = this.showArtists
-      ? (items<ArtistItem>(this.hass, config.artists_entity, config.max_items) ?? [])
+      ? (items<ArtistItem>(
+          this.hass,
+          config.artists_entity,
+          config.max_artists ?? config.max_items,
+        ) ?? [])
       : [];
     const both = Boolean(config.albums_entity) && this.showArtists;
 
@@ -292,7 +332,10 @@ export class LidarrRecentlyAddedCard extends LitElement {
                 config.albums_entity,
                 both ? "Albums" : undefined,
                 this.albums.length
-                  ? html`<div class="albums ${config.layout}">
+                  ? html`<div
+                      class="albums ${config.layout}"
+                      style=${config.layout === "strip" ? `--lra-rows: ${rows(config.album_rows)}` : ""}
+                    >
                       ${repeat(
                         this.albums,
                         (item, index) => item.musicbrainz_id ?? `${item.artist}|${item.album}|${index}`,
@@ -307,7 +350,7 @@ export class LidarrRecentlyAddedCard extends LitElement {
                 config.artists_entity!,
                 both ? "Artists" : undefined,
                 this.artists.length
-                  ? html`<div class="artists">
+                  ? html`<div class="artists" style="--lra-rows: ${rows(config.artist_rows)}">
                       ${repeat(
                         this.artists,
                         (item, index) => item.musicbrainz_id ?? `${item.artist}|${index}`,
@@ -711,11 +754,16 @@ export class LidarrRecentlyAddedCard extends LitElement {
       color: var(--warning-color, #ff9800);
     }
 
-    /* Rows that scroll sideways, snapping to whole items. */
+    /* One or more rows that scroll sideways, snapping to whole items. Items
+       fill each column top to bottom, so what's on screen is always the
+       newest. */
     .albums.strip,
     .artists {
-      display: flex;
-      gap: var(--lra-gap);
+      display: grid;
+      grid-auto-flow: column;
+      grid-template-rows: repeat(var(--lra-rows, 1), auto);
+      grid-auto-columns: var(--lra-cover-size);
+      gap: 16px var(--lra-gap);
       overflow-x: auto;
       overscroll-behavior-x: contain;
       scroll-snap-type: x mandatory;
@@ -724,9 +772,9 @@ export class LidarrRecentlyAddedCard extends LitElement {
       scrollbar-width: thin;
       scrollbar-color: var(--divider-color, rgba(127, 127, 127, 0.3)) transparent;
     }
-    .albums.strip .tile {
-      flex: none;
-      width: var(--lra-cover-size);
+    .artists {
+      grid-auto-columns: calc(var(--lra-avatar-size) + 16px);
+      row-gap: 12px;
     }
     .albums.wall {
       display: grid;
@@ -869,9 +917,7 @@ export class LidarrRecentlyAddedCard extends LitElement {
     }
 
     .artist {
-      flex: none;
       align-items: center;
-      width: calc(var(--lra-avatar-size) + 16px);
       text-align: center;
     }
     .avatar {
@@ -901,6 +947,10 @@ export class LidarrRecentlyAddedCard extends LitElement {
       }
     }
   `;
+}
+
+function rows(value: number | undefined): number {
+  return Math.min(Math.max(Math.round(value ?? 1), 1), MAX_ROWS);
 }
 
 function stateLabel(state: string | undefined): string | undefined {

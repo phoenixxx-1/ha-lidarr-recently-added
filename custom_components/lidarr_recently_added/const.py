@@ -11,6 +11,9 @@ LOGGER = logging.getLogger(__package__)
 DEFAULT_NAME: Final = "Lidarr"
 MANUFACTURER: Final = "Lidarr"
 
+CONF_MAX_ALBUMS: Final = "max_albums"
+CONF_MAX_ARTISTS: Final = "max_artists"
+# Before 0.3.0 one option set both counts; still read as the default for both.
 CONF_MAX_ITEMS: Final = "max_items"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_ALBUMS_ENABLED: Final = "albums_enabled"
@@ -19,7 +22,7 @@ CONF_ARTISTS_ENABLED: Final = "artists_enabled"
 DEFAULT_VERIFY_SSL: Final = True
 DEFAULT_MAX_ITEMS: Final = 10
 MIN_MAX_ITEMS: Final = 1
-MAX_MAX_ITEMS: Final = 25
+MAX_MAX_ITEMS: Final = 50
 
 # Scan interval is configured in minutes.
 DEFAULT_SCAN_INTERVAL: Final = 30

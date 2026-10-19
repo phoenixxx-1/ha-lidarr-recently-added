@@ -75,7 +75,8 @@ Open the integration and choose **Configure**:
 
 | Option | Default | Description |
 |---|---|---|
-| Number of items | 10 | How many albums and artists each sensor lists (1–25). |
+| Number of albums | 10 | How many albums the albums sensor lists (1–50). |
+| Number of artists | 10 | How many artists the artists sensor lists (1–50). |
 | Update interval | 30 min | How often Lidarr is asked for new items (5–1440 minutes). |
 | Recently added albums sensor | On | Turning it off removes the sensor and stops its API calls and events. |
 | Recently added artists sensor | On | As above, for artists. |
@@ -258,14 +259,26 @@ player: media_player.living_room
 | `albums_entity` | | The **Recently added albums** sensor. |
 | `artists_entity` | | The **Recently added artists** sensor. Set at least one of the two. |
 | `title` | none | Optional heading. |
-| `layout` | `strip` | `strip`: one row that scrolls sideways, good for a narrow column. `wall`: a grid that fills the card's width. |
-| `max_items` | all | Show at most this many albums and artists. The sensors' **Number of items** option sets the upper limit. |
+| `layout` | `strip` | `strip`: rows that scroll sideways, good for a narrow column. `wall`: a grid that fills the card's width. |
+| `album_rows` | `1` | Strip layout: how many rows of album covers (1–6). |
+| `artist_rows` | `1` | How many rows of artist avatars (1–6). |
+| `max_albums` | all | Show at most this many albums. |
+| `max_artists` | all | Show at most this many artists. |
 | `show_artists` | `true` | Show the row of artist avatars. |
 | `show_added` | `true` | Show when each item was added, for example "Added 2h ago". |
 | `player` | none | The Music Assistant player to play on. |
 | `player_entity` | none | A helper (`input_select`, `select`, `input_text` or `text`) holding the player's entity ID or name. Takes priority over `player`, so other controls can choose the player. |
 | `artist_radio` | `true` | Tapping an artist starts radio based on them, rather than playing their albums. |
 | `lidarr_link` | `false` | Add **Open in Lidarr** to the hold menu. See below. |
+
+The card can't show more items than the sensors hold, so if you use several
+rows, raise **Number of albums** and **Number of artists** in the
+integration's options (up to 50 each).
+
+Rows suit dashboards seen on different screens: the card keeps to the number
+of rows you set and shows as many columns as fit, so a phone, tablet and
+desktop each get a full section that scrolls sideways. Items fill each column
+from top to bottom, so the ones on screen are always the newest.
 
 The card sizes itself in sections views. Covers use your theme's colours and
 fonts, in light and dark mode. If you use card-mod, these variables adjust the
